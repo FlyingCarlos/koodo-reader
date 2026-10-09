@@ -33,7 +33,6 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
       nextPage: 0,
       currentTime: this.getFormattedTime(),
       percentage: "",
-      ignoreNextPageChange: false,
     };
     this.isFirst = true;
     this.lastBatchTranslationTriggerAt = 0;
@@ -58,6 +57,7 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
   }
 
   componentWillUnmount() {
+    this.props.handleJumpPosition(null);
     if (this.timeInterval) {
       clearInterval(this.timeInterval);
     }
@@ -73,11 +73,6 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
       nextProps.htmlBook.rendition.on("page-changed", async () => {
         await this.handlePageNum(nextProps.htmlBook.rendition);
         await this.handleBatchTranslation(nextProps.htmlBook.rendition);
-        if (this.state.ignoreNextPageChange) {
-          this.setState({ ignoreNextPageChange: false });
-        } else {
-          this.props.handleJumpPosition(null);
-        }
       });
       nextProps.htmlBook.rendition.on(
         "annotation-changed",
@@ -141,10 +136,9 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
       this.setState({ isSingle: nextProps.readerMode !== "double" });
     }
     if (
-      nextProps.jumpPosition !== this.props.jumpPosition &&
-      nextProps.jumpPosition !== null
+      nextProps.currentBook.key !== this.props.currentBook.key
     ) {
-      this.setState({ ignoreNextPageChange: true });
+      this.props.handleJumpPosition(null);
     }
   }
   getTransCachePath(chapterDocIndex: string): string {
@@ -472,7 +466,6 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
               className="jump-return-button"
               onClick={async () => {
                 if (this.props.jumpPosition && this.props.htmlBook) {
-                  this.setState({ ignoreNextPageChange: true });
                   await this.props.htmlBook.rendition.goToPosition(
                     JSON.stringify(this.props.jumpPosition)
                   );

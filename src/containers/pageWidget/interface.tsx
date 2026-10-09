@@ -31,5 +31,4 @@ export interface PageWidgetState {
   nextPage: number;
   currentTime: string;
   percentage: string;
-  ignoreNextPageChange: boolean;
 }
