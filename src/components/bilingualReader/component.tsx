@@ -138,7 +138,7 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
           {!models.length && <option value="">{modelsLoading ? "正在读取可用模型…" : "订阅未连接"}</option>}
           {models.map((item) => <option key={item.slug} value={item.slug}>{item.display_name}</option>)}
         </select><button disabled={!!busy || !model || !content} onClick={() => taskAction("translate")}>翻译当前章节</button></>}
-      {task && <><div role="status"><span>{TASK_LABELS[task.status] || task.status}</span><span>{task.completed} / {task.total} 段已审校</span></div>
+      {task && <><div role="status"><span>{task.phase === "formatting" && task.status === "running" ? "正文已完成，正在恢复表格" : task.phase === "formatting" && task.status === "queued" ? "等待恢复表格" : task.phase === "formatting" && task.status === "failed" ? "表格恢复中断，正文译文已保存" : TASK_LABELS[task.status] || task.status}</span><span>{task.completed} / {task.total} 段已审校</span></div>
         <progress aria-label="章节翻译进度" value={task.completed} max={task.total || 1} />
         {task.batch_count !== undefined && <p className="pdf-translation-hint">多段合批：共 {task.batch_count} 批，已完成 {task.completed_batches || 0} 批。</p>}
         {running && <button disabled={!!busy} onClick={() => taskAction("pause")}>暂停翻译</button>}

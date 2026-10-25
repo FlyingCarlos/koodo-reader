@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Book from "../../models/Book";
 import { BookTranslation, TranslationBook, translationApi } from "./api";
+import { PDF_TRANSLATION_UPDATE } from "./events";
 
 const LABELS: Record<string, string> = {
   not_started: "尚未开始整本翻译", queued: "等待整本翻译", running: "正在翻译整本书",
@@ -27,13 +28,14 @@ export default function WholeBookControls({ book, metadata, models, model, setMo
     void update();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [metadata.id]);
-  const action = async (command: "start" | "pause" | "resume") => {
-    setBusy("正在更新整本任务…"); setError("");
+  const action = async (command: "start" | "pause" | "resume" | "tables") => {
+    setBusy(command === "tables" ? "正在提交表格恢复…" : "正在更新整本任务…"); setError("");
     try {
-      setTask(await translationApi<BookTranslation>(`/books/${metadata.id}/whole${command === "start" ? "" : `/${command}`}`, {
+      setTask(await translationApi<BookTranslation>(command === "tables" ? `/books/${metadata.id}/tables/repair` : `/books/${metadata.id}/whole${command === "start" ? "" : `/${command}`}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: command === "start" ? JSON.stringify({ model }) : undefined,
       }));
+      window.dispatchEvent(new CustomEvent(PDF_TRANSLATION_UPDATE, { detail: { key: book.key } }));
     } catch (failure) { setError(failure instanceof Error ? failure.message : "任务更新失败。"); }
     finally { setBusy(""); }
   };
@@ -63,11 +65,13 @@ export default function WholeBookControls({ book, metadata, models, model, setMo
       <p role="status">{LABELS[task.status] || task.status}</p>
       {task.current_chapter && <p>当前章节：{task.chapters.find(chapter => chapter.id === task.current_chapter)?.title}</p>}
       <p>{task.completed_chapters} / {task.total_chapters} 章已完成 · {task.completed} / {task.total} 段已审校</p>
+      {!!task.tables?.total && <p role="status">已译章节表格：{task.tables.completed} / {task.tables.total} 页已恢复</p>}
       <progress aria-label="整本翻译进度" max={task.total || 1} value={task.completed} />
       <div className="whole-book-actions">
         {!task.id && <button disabled={!!busy || !model || !task.total} onClick={() => action("start")}>开始整本翻译</button>}
         {active && <button disabled={!!busy} onClick={() => action("pause")}>暂停整本翻译</button>}
         {["paused", "failed", "paused_usage_limit"].includes(task.status) && <button disabled={!!busy} onClick={() => action("resume")}>继续整本翻译</button>}
+        {task.tables && task.tables.completed < task.tables.total && <button disabled={!!busy || !!active} onClick={() => action("tables")}>恢复已有译文表格</button>}
         <button disabled={!!busy} onClick={download}>导出双语包{task.status === "completed" ? "" : "（当前进度）"}</button>
       </div>
       <details className="whole-book-chapters"><summary>查看章节进度</summary><ol>
@@ -76,6 +80,6 @@ export default function WholeBookControls({ book, metadata, models, model, setMo
     </> : <p role="status">正在读取整本任务…</p>}
     {busy && <p role="status">{busy}</p>}
     {error && <p role="alert">{error}</p>}
-    <p className="pdf-translation-hint">双语包包含原 PDF、原封面、译文及格式和段落定位信息。书架保留原书；笔记和高亮仍由原阅读器管理，请通过原有备份功能保存。未恢复的格式不会在导出时自动调用模型处理。</p>
+    <p className="pdf-translation-hint">双语包包含原 PDF、原封面、译文及格式和段落定位信息。书架保留原书；笔记和高亮仍由原阅读器管理，请通过原有备份功能保存。新章节翻译后自动恢复表格；旧译文可点击“恢复已有译文表格”。此操作复用正文，可能使用订阅模型对齐单元格；导出不会调用模型。</p>
   </div>;
 }

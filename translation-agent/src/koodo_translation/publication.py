@@ -40,7 +40,7 @@ class PublicationStore:
         files = [folder / "document.json", folder / "source-format-v1.json"]
         files += sorted(folder.glob("page-format-*.json"))
         stamps = [(p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.exists()]
-        value = [2, (row["id"], row["revision"]) if row else None, jobs, stamps]
+        value = [3, (row["id"], row["revision"]) if row else None, jobs, stamps]
         return hashlib.sha256(json.dumps(value).encode()).hexdigest()
 
     def chapter(self, book_id, chapter_id, build):
@@ -81,7 +81,13 @@ class PublicationStore:
                 break
         else:
             raise ValueError("译文正在更新，请稍后重试导出；已有结果仍然保留。")
-        complete = all(
+        tables = [
+            p
+            for content in contents.values()
+            for p in content["page_formats"].values()
+            if p["tables"]
+        ]
+        complete = all(p["status"] == "ready" for p in tables) and all(
             not c["text_count"]
             or contents[c["id"]]["task"]
             and contents[c["id"]]["task"]["status"] == "completed"
@@ -97,6 +103,10 @@ class PublicationStore:
             "source_language": "en",
             "target_language": "zh-CN",
             "status": "completed" if complete else "partial",
+            "table_presentation": {
+                "total": len(tables),
+                "completed": sum(p["status"] == "ready" for p in tables),
+            },
             "original": "source.pdf",
             "cover": {"source": "source.pdf", "page": 1},
             "chapters": book["chapters"],

@@ -1,6 +1,7 @@
 import { jest, expect, beforeEach, afterEach, test } from "@jest/globals";
-import { attachPdfTranslation, captureTranslationRange, clearTranslationMarks, paintTranslationNote, preservePdfViewport, visiblePdfPage } from "./pdfTranslation";
+import { attachPdfTranslation, captureTranslationRange, clearTranslationMarks, paintTranslationNote, preservePdfViewport, visiblePdfPage, PDF_TRANSLATION_UPDATE } from "./pdfTranslation";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
+import { translationApi } from "../../components/bilingualReader/api";
 
 jest.mock("../../assets/lib/kookit-extra-browser.min", () => ({ ConfigService: { getReaderConfig: require("@jest/globals").jest.fn(() => "no") } }));
 jest.mock("../../components/bilingualReader/api", () => ({ translationApi: require("@jest/globals").jest.fn() }));
@@ -42,6 +43,45 @@ test.each([[165, "stacked", 2], [816, "columns", 1]])(
   }
 );
 afterEach(() => { document.getSelection()?.removeAllRanges(); jest.clearAllMocks(); });
+
+test("pending table feedback follows failure and retry without replacing the native reader", async () => {
+  (ConfigService.getReaderConfig as any).mockImplementation((key: string) => key.startsWith("pdfBilingual:") ? "yes" : "18");
+  document.body.innerHTML = '<div id="koodoPDFLayer"></div>';
+  const element = document.createElement("div"); document.body.appendChild(element);
+  let status = "running", ready = false;
+  (translationApi as any).mockImplementation(async (path: string) => path.includes("/chapters/") ? {
+    task: {status}, blocks: [], page_formats: {"1": {status: ready ? "ready" : "pending", tables: [{id:"table"}]}},
+  } : {id:"book",chapters:[{id:"chapter-0001",start_page:1,end_page:1}]});
+  let refresh: () => Promise<void>;
+  const interval = jest.spyOn(window, "setInterval").mockImplementation(((callback) => { refresh = callback; return 42; }) as any);
+  const native: any = {
+    readerMode: "scroll", element, handleRenderPDFChapter: jest.fn(), renderTo: jest.fn(),
+    getSubDocument: () => document, getDocument: () => document,
+    chapterDocList: [{text:{getDimension: async () => ({width:400})}}],
+    getPdfScale: jest.fn(), getHighlightCoords: jest.fn(), renderHighlighters: jest.fn(),
+    createOneNote: jest.fn(), removeOneNote: jest.fn(), removeContent: jest.fn(),
+    getPositionByChapter: jest.fn(), goToPosition: jest.fn(),
+  };
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+  try {
+    attachPdfTranslation(native, {key:"test"} as any);
+    await native.handleRenderPDFChapter(0); await settle();
+    const header = () => document.querySelector(".koodo-local-translation header")!.textContent;
+    expect(header()).toContain("表格结构恢复中");
+    status = "failed"; await refresh!(); await settle();
+    expect(header()).toContain("表格结构恢复失败");
+    status = "queued";
+    window.dispatchEvent(new CustomEvent(PDF_TRANSLATION_UPDATE, {detail:{key:"test"}}));
+    await settle(); expect(header()).toContain("表格结构恢复中");
+    status = "paused"; await refresh!(); await settle();
+    expect(header()).toContain("表格结构待恢复");
+    status = "queued";
+    window.dispatchEvent(new CustomEvent(PDF_TRANSLATION_UPDATE, {detail:{key:"test"}}));
+    await settle();
+    ready = true; status = "completed"; await refresh!(); await settle();
+    expect(header()).not.toContain("表格结构");
+  } finally { native.removeContent(); interval.mockRestore(); }
+});
 
 test("format controls target the page occupying the visible viewport even before native progress settles", () => {
   const element=document.createElement("div");element.scrollTop=950;

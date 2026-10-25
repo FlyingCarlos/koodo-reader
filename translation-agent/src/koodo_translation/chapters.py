@@ -161,6 +161,11 @@ class ChapterQueue:
         return {
             "id": task["id"],
             "status": task["status"],
+            "phase": "formatting"
+            if total
+            and finished == total
+            and task["status"] in {"queued", "running", "failed", "paused", "paused_usage_limit"}
+            else "translation",
             "model": task["model"],
             "total": total,
             "completed": finished,
@@ -225,43 +230,85 @@ class ChapterQueue:
         # translation jobs, accepted text, document IDs, or source PDFs.
         async with self.operation_lock:
             with exclusive_lock(self.documents.directory / "worker.lock"):
-                content = self.chapter(book_id, chapter_id)
-                source = content["page_formats"].get(str(page))
-                if not source:
-                    raise ValueError("本页不属于当前章节。")
-                if source["status"] == "ready":
-                    return source
-                source = {
-                    k: v
-                    for k, v in source.items()
-                    if k not in {"status", "translated_marks", "translated_cells", "toc_entries"}
-                }
-                nodes = [n for n in content["blocks"] if n["page"] == page]
-                texts = {n["id"]: n["translation"]["text"] for n in nodes if n["translation"]}
-                if any(n["kind"] not in {"image", "code"} and n["id"] not in texts for n in nodes):
-                    raise ValueError("请先完成本页翻译，再恢复格式；已有译文会直接复用。")
-                model = content["task"]["model"] if content["task"] else None
-                if not model:
-                    raise ValueError("请先翻译本页。")
-                saved_path = self.documents.folder(book_id) / f"page-format-{page:04d}.json"
-                saved = json.loads(saved_path.read_text()) if saved_path.exists() else {}
-                digest = fingerprint(source, texts)
-                resume = saved.get("job_id") if saved.get("fingerprint") == digest else None
-                job = self.jobs.start(
-                    {"format_version": 1, "source": source, "texts": texts}, model, resume
-                )
-                write_private_json(saved_path, {"fingerprint": digest, "job_id": job["id"]})
-                if source["marks"] or source["tables"]:
-                    async with AsyncOpenAI(
-                        api_key=self.auth.access_token, base_url=API, max_retries=0
-                    ) as client:
-                        output = await align_page(source, texts, model, client, self.jobs, job)
-                else:
-                    output = {"marks": {}, "cells": {}}
-                    self.jobs.save(job["id"], "completed", {"format": output, "usage": []})
-                saved = {**output, "fingerprint": digest, "job_id": job["id"]}
-                write_private_json(saved_path, saved)
-                return page_presentation(source, texts, saved)
+                return await self._format_page(book_id, chapter_id, page)
+
+    async def _format_page(self, book_id: str, chapter_id: str, page: int):
+        content = self.chapter(book_id, chapter_id)
+        source = content["page_formats"].get(str(page))
+        if not source:
+            raise ValueError("本页不属于当前章节。")
+        if source["status"] == "ready":
+            return source
+        source = {
+            k: v
+            for k, v in source.items()
+            if k
+            not in {"status", "translated_marks", "translated_cells", "toc_entries", "table_state"}
+        }
+        nodes = [n for n in content["blocks"] if n["page"] == page]
+        texts = {n["id"]: n["translation"]["text"] for n in nodes if n["translation"]}
+        if any(n["kind"] not in {"image", "code"} and n["id"] not in texts for n in nodes):
+            raise ValueError("请先完成本页翻译，再恢复格式；已有译文会直接复用。")
+        model = content["task"]["model"] if content["task"] else None
+        if not model:
+            raise ValueError("请先翻译本页。")
+        saved_path = self.documents.folder(book_id) / f"page-format-{page:04d}.json"
+        saved = json.loads(saved_path.read_text()) if saved_path.exists() else {}
+        digest = fingerprint(source, texts)
+        resume = saved.get("job_id") if saved.get("fingerprint") == digest else None
+        job = self.jobs.start(
+            {"format_version": 1, "source": source, "texts": texts}, model, resume
+        )
+        write_private_json(saved_path, {"fingerprint": digest, "job_id": job["id"]})
+        if source["marks"] or source["tables"]:
+            async with AsyncOpenAI(
+                api_key=self.auth.access_token, base_url=API, max_retries=0
+            ) as client:
+                output = await align_page(source, texts, model, client, self.jobs, job)
+        else:
+            output = {"marks": {}, "cells": {}}
+            self.jobs.save(job["id"], "completed", {"format": output, "usage": []})
+        saved = {**output, "fingerprint": digest, "job_id": job["id"]}
+        write_private_json(saved_path, saved)
+        return page_presentation(source, texts, saved)
+
+    def table_progress(self, book_id: str, chapter_id: str | None = None):
+        book = self.documents.get(book_id)
+        pages = []
+        for chapter in book["chapters"]:
+            if chapter_id and chapter["id"] != chapter_id:
+                continue
+            task = self.for_chapter(book_id, chapter["id"])
+            summary = self.summary(task)
+            if not summary or not summary["total"] or summary["completed"] != summary["total"]:
+                continue
+            content = self.chapter(book_id, chapter["id"])
+            for page, presentation in content["page_formats"].items():
+                if presentation["tables"]:
+                    pages.append(
+                        {
+                            "page": int(page),
+                            "chapter_id": chapter["id"],
+                            "ready": presentation["status"] == "ready",
+                        }
+                    )
+        return {"total": len(pages), "completed": sum(p["ready"] for p in pages), "pages": pages}
+
+    def repair_tables(self, book_id: str, chapter_id: str | None = None):
+        progress = self.table_progress(book_id, chapter_id)
+        pending = {p["chapter_id"] for p in progress["pages"] if not p["ready"]}
+        for chapter in pending:
+            task = self.for_chapter(book_id, chapter)
+            if task and task["status"] not in {"queued", "running"}:
+                task["status"], task["error_code"] = "queued", None
+                self.save(task)
+        return progress
+
+    async def _restore_chapter_tables(self, task):
+        content = self.chapter(task["book_id"], task["chapter_id"])
+        for page, presentation in content["page_formats"].items():
+            if presentation["tables"] and presentation["status"] != "ready":
+                await self._format_page(task["book_id"], task["chapter_id"], int(page))
 
     def pause(self, task_id: str):
         task = self.get(task_id)
@@ -363,6 +410,8 @@ class ChapterQueue:
                             self.save(task)
                         await translate_job(source, task["model"], client, self.jobs, job["id"])
                 jobs = [self.jobs.get(chunk["job_id"]) for chunk in task["chunks"]]
+                if all(job["status"] == "completed" for job in jobs):
+                    await self._restore_chapter_tables(task)
                 task["status"] = (
                     "needs_review"
                     if any(job["status"] == "needs_review" for job in jobs)

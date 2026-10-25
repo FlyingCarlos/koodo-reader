@@ -353,7 +353,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       if (disposed || !article.isConnected) return;
       const blocks = chapterContent?.blocks.filter((block) => block.page === physicalPage(index)) || [];
       const format = chapterContent?.page_formats?.[String(physicalPage(index))];
-      const signature = JSON.stringify([blocks.map((block) => [block.id, block.translation]), format]);
+      const signature = JSON.stringify([blocks.map((block) => [block.id, block.translation]), format, chapterContent?.task?.status]);
       if (!force && article.dataset.signature === signature) return;
       // Background updates must not destroy the user's active translated selection.
       const selection = doc.getSelection();
@@ -361,7 +361,9 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       article.dataset.signature = signature;
       article.replaceChildren();
       const header = doc.createElement("header");
-      header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}`;
+      const pendingTable = !!format?.tables?.length && format.status !== "ready";
+      const tableMessage = !pendingTable ? "" : chapterContent?.task?.status === "failed" ? " · 表格结构恢复失败" : ["queued", "running"].includes(chapterContent?.task?.status || "") ? " · 表格结构恢复中" : " · 表格结构待恢复";
+      header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}${tableMessage}`;
       article.appendChild(header);
       const dimension = await rendition.chapterDocList[index].text.getDimension();
       if (renderOriginalPdfCover(article, blocks, physicalPage(index), dimension, stacked)) {
@@ -507,9 +509,10 @@ export function attachPdfTranslation(rendition: any, book: Book) {
   });
   const refresh = async () => {
     if (!enabled || disposed) return;
-    // Only poll chapters that contain mounted pages, and only while tasks are active.
+    // Poll loaded chapters while active, and legacy completed chapters awaiting table repair.
     for (const [id, chapter] of Array.from(content.entries())) {
-      if (["queued", "running"].includes(chapter.task?.status || "")) {
+      const pendingTables = Object.values(chapter.page_formats || {}).some(format => format.tables?.length && format.status !== "ready");
+      if (["queued", "running"].includes(chapter.task?.status || "") || (chapter.task?.status === "completed" && pendingTables)) {
         try { await loadChapter(id); } catch { /* Preserve last readable copy. */ }
       }
     }

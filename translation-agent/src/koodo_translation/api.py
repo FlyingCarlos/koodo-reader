@@ -160,6 +160,13 @@ async def whole_book(request):
     return JSONResponse(queue.books.create(book_id, model), status_code=202)
 
 
+async def repair_tables(request):
+    queue = request.app.state.queue
+    book_id = request.path_params["book_id"]
+    queue.repair_tables(book_id)
+    return JSONResponse(await run_in_threadpool(queue.books.summary, book_id), status_code=202)
+
+
 async def whole_control(request):
     return JSONResponse(
         request.app.state.queue.books.control(
@@ -200,6 +207,7 @@ app = Starlette(
         Route("/api/translation/books", books, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}", book),
         Route("/api/translation/books/{book_id}/whole", whole_book, methods=["GET", "POST"]),
+        Route("/api/translation/books/{book_id}/tables/repair", repair_tables, methods=["POST"]),
         Route("/api/translation/books/{book_id}/whole/{action}", whole_control, methods=["POST"]),
         Route("/api/translation/books/{book_id}/export", export_book, methods=["POST"]),
         Route("/api/translation/books/{book_id}/chapters/{chapter_id}", chapter),

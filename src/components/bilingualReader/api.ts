@@ -25,6 +25,7 @@ export type TranslationBook = {
 export type ChapterTask = {
   id: string;
   status: string;
+  phase?: "translation" | "formatting";
   model: string;
   total: number;
   completed: number;
@@ -89,5 +90,6 @@ export type BookTranslation = {
   id: string | null; status: string; model: string | null; current_chapter: string | null;
   error_code: string | null; total: number; completed: number;
   total_chapters: number; completed_chapters: number;
+  tables?: {total: number; completed: number; pages: {page: number; chapter_id: string; ready: boolean}[]};
   chapters: (Chapter & {status: string; total: number; completed: number})[];
 };

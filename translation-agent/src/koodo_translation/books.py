@@ -102,6 +102,7 @@ class BookQueue:
             "current_chapter": task["current_chapter"] if task else None,
             "error_code": task["error_code"] if task else None,
             "chapters": chapters,
+            "tables": self.queue.table_progress(book_id),
             "completed_chapters": sum(c["status"] == "completed" for c in chapters),
             "total_chapters": len(chapters),
             "completed": sum(c["completed"] for c in chapters),
@@ -164,7 +165,10 @@ class BookQueue:
                 continue
             child = self.queue.for_chapter(book["id"], chapter["id"])
             if child and child["status"] == "completed":
-                continue
+                tables = self.queue.repair_tables(book["id"], chapter["id"])
+                if tables["completed"] == tables["total"]:
+                    continue
+                child = self.queue.get(child["id"])
             if child and child["status"] in STOPPED:
                 if task["current_chapter"] == chapter["id"] or child["status"] == "needs_review":
                     task["status"], task["error_code"] = child["status"], child["error_code"]

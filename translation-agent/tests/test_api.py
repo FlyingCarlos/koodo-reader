@@ -150,6 +150,8 @@ def test_whole_book_api_is_idempotent_and_exports_original_pdf(tmp_path, monkeyp
         assert client.get(root + "/whole").json()["status"] == "not_started"
         assert client.post(root + "/whole", json={"model": "test-model"}).status_code == 403
         assert client.post(root + "/export").status_code == 403
+        assert client.post(root + "/tables/repair").status_code == 403
+        assert client.post(root + "/tables/repair", headers=headers).status_code == 202
         assert (
             client.post(root + "/whole", json={"model": "bad"}, headers=headers).status_code == 400
         )
