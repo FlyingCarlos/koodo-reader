@@ -121,6 +121,8 @@ def test_restart_recovers_running_but_keeps_paused_tasks(pdf_bytes, tmp_path, mo
     task = queue.create(book["id"], book["chapters"][0]["id"], "test-model")
     task["status"] = "running"
     queue.save(task)
+    queue.chapter(book["id"], task["chapter_id"])
+    queue.chapter(book["id"], task["chapter_id"])
     paused = queue.create(book["id"], book["chapters"][1]["id"], "test-model")
     queue.pause(paused["id"])
 
@@ -128,6 +130,7 @@ def test_restart_recovers_running_but_keeps_paused_tasks(pdf_bytes, tmp_path, mo
         recovered = ChapterQueue(store)
         await recovered.start()
         assert recovered.get(task["id"])["status"] == "queued"
+        assert recovered.chapter(book["id"], task["chapter_id"])["task"]["status"] == "queued"
         assert recovered.get(paused["id"])["status"] == "paused"
         await recovered.stop()
 

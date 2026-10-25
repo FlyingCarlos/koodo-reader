@@ -84,3 +84,10 @@ export async function translationApi<T>(path: string, options: RequestInit = {})
   }
   return data;
 }
+
+export type BookTranslation = {
+  id: string | null; status: string; model: string | null; current_chapter: string | null;
+  error_code: string | null; total: number; completed: number;
+  total_chapters: number; completed_chapters: number;
+  chapters: (Chapter & {status: string; total: number; completed: number})[];
+};

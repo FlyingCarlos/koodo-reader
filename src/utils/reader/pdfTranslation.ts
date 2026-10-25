@@ -1,3 +1,4 @@
+import { renderOriginalPdfCover } from "./pdfCover";
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { ChapterContent, PageFormat, ParallelBlock, TranslationBook, translationApi } from "../../components/bilingualReader/api";
@@ -362,7 +363,9 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}`;
       article.appendChild(header);
       const dimension = await rendition.chapterDocList[index].text.getDimension();
-      if (blocks.length) renderBlocks(article, blocks, dimension.width, format);
+      if (renderOriginalPdfCover(article, blocks, physicalPage(index), dimension, stacked)) {
+        // The original cover is presented as a full page, without translation gutters/header.
+      } else if (blocks.length) renderBlocks(article, blocks, dimension.width, format);
       else {
         const message = doc.createElement("p");
         message.className = "translation-pending";

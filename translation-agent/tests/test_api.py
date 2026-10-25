@@ -121,3 +121,47 @@ def test_format_endpoint_preserves_translations_and_reuses_saved_presentation(
         assert after["blocks"] == before["blocks"]
         assert after["task"] == before["task"]
         assert api.app.state.documents.get(book["id"]) == document
+
+
+def test_whole_book_api_is_idempotent_and_exports_original_pdf(tmp_path, monkeypatch):
+    import io
+    import json
+    import zipfile
+
+    async def idle_worker(self):
+        await asyncio.Event().wait()
+
+    async def available_models(self):
+        return [{"slug": "test-model", "display_name": "Test model"}]
+
+    monkeypatch.setattr(api, "state_directory", lambda: state_directory(tmp_path))
+    monkeypatch.setattr(api.ChapterQueue, "_consume", idle_worker)
+    monkeypatch.setattr("koodo_translation.auth.ChatGPTAuth.models", available_models)
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((40, 100), "Whole-book API source text.")
+        data = pdf.tobytes()
+    headers = {"x-koodo-translation": "1", "origin": "https://koodoreader.localhost"}
+    with TestClient(api.app) as client:
+        book = client.post("/api/translation/books?key=whole", content=data, headers=headers).json()
+        root = f"/api/translation/books/{book['id']}"
+        assert client.get(root + "/whole").json()["status"] == "not_started"
+        assert client.post(root + "/whole", json={"model": "test-model"}).status_code == 403
+        assert client.post(root + "/export").status_code == 403
+        assert (
+            client.post(root + "/whole", json={"model": "bad"}, headers=headers).status_code == 400
+        )
+        first = client.post(root + "/whole", json={"model": "test-model"}, headers=headers)
+        assert first.status_code == 202
+        assert (
+            client.post(root + "/whole", json={"model": "test-model"}, headers=headers).json()["id"]
+            == first.json()["id"]
+        )
+        api.app.state.queue.books.advance()
+        assert client.post(root + "/whole/pause", headers=headers).json()["status"] == "paused"
+        assert client.post(root + "/whole/resume", headers=headers).json()["status"] == "queued"
+        assert client.post(root + "/whole/delete", headers=headers).status_code == 404
+        response = client.post(root + "/export", headers=headers)
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.read("source.pdf") == data
+            assert json.loads(archive.read("manifest.json"))["status"] == "partial"

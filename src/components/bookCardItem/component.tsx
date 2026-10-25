@@ -53,7 +53,7 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
       x,
       y,
       CONTEXT_MENU_WIDTH,
-      estimateMenuHeight(9)
+      estimateMenuHeight(props.book.format === "PDF" ? 10 : 9)
     );
     setLeft(pos.left);
     setTop(pos.top);

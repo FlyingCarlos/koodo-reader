@@ -144,6 +144,33 @@ async def control(request):
     return JSONResponse(result)
 
 
+async def whole_book(request):
+    queue = request.app.state.queue
+    book_id = request.path_params["book_id"]
+    if request.method == "GET":
+        return JSONResponse(await run_in_threadpool(queue.books.summary, book_id))
+    data = await request.json()
+    model = data.get("model")
+    if model not in {item["slug"] for item in await queue.auth.models()}:
+        raise ValueError("请选择当前订阅支持的模型。")
+    return JSONResponse(queue.books.create(book_id, model), status_code=202)
+
+
+async def whole_control(request):
+    return JSONResponse(
+        request.app.state.queue.books.control(
+            request.path_params["book_id"], request.path_params["action"]
+        )
+    )
+
+
+async def export_book(request):
+    # Read a revision-validated snapshot without waiting for a long model call.
+    queue = request.app.state.queue
+    path = await run_in_threadpool(queue.publication.publish, request.path_params["book_id"])
+    return FileResponse(path, media_type="application/zip", filename="translation.koodo.zip")
+
+
 async def source(request):
     store = request.app.state.documents
     book_id = request.path_params["book_id"]
@@ -167,6 +194,9 @@ app = Starlette(
         Route("/api/translation/models", models),
         Route("/api/translation/books", books, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}", book),
+        Route("/api/translation/books/{book_id}/whole", whole_book, methods=["GET", "POST"]),
+        Route("/api/translation/books/{book_id}/whole/{action}", whole_control, methods=["POST"]),
+        Route("/api/translation/books/{book_id}/export", export_book, methods=["POST"]),
         Route("/api/translation/books/{book_id}/chapters/{chapter_id}", chapter),
         Route(
             "/api/translation/books/{book_id}/chapters/{chapter_id}/pages/{page:int}/format",

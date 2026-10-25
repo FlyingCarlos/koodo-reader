@@ -52,7 +52,7 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
         ? e.clientY
         : e.clientY - 200,
       CONTEXT_MENU_WIDTH,
-      estimateMenuHeight(9)
+      estimateMenuHeight(props.book.format === "PDF" ? 10 : 9)
     );
     setLeft(pos.left);
     setTop(pos.top);

@@ -8,8 +8,10 @@ from openai import AsyncOpenAI
 
 from .auth import API, ChatGPTAuth
 from .batching import SOURCE_MODE, batches, replan_unstarted, segment_payload
+from .books import BookQueue
 from .documents import DocumentStore
 from .formatting import align_page, fingerprint, page_presentation, source_formats
+from .publication import PublicationStore
 from .storage import exclusive_lock, write_private_json
 from .toc import toc_block_ids
 from .workflow import TranslationInput, translate_job
@@ -55,6 +57,12 @@ class ChapterQueue:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(book_id,chapter_id)
             )""")
+            if "revision" not in {row[1] for row in db.execute("PRAGMA table_info(chapter_tasks)")}:
+                db.execute(
+                    "ALTER TABLE chapter_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+                )
+        self.publication = PublicationStore(self)
+        self.books = BookQueue(self)
 
     def get(self, task_id: str) -> dict:
         with self.jobs.connect() as db:
@@ -78,7 +86,7 @@ class ChapterQueue:
         with self.jobs.connect() as db:
             db.execute(
                 "UPDATE chapter_tasks SET status=?,chunks=?,error_code=?,"
-                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                "updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE id=?",
                 (
                     task["status"],
                     json.dumps(task["chunks"]),
@@ -125,12 +133,25 @@ class ChapterQueue:
         if task is None:
             return None
         finished, drafted, total, review_count, completed_batches = 0, 0, 0, 0, 0
+        ids = [chunk["job_id"] for chunk in task["chunks"] if chunk["job_id"]]
+        progress = {}
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            with self.jobs.connect() as db:
+                progress = {
+                    row["id"]: row
+                    for row in db.execute(
+                        "SELECT id,status,"
+                        "json_array_length(artifacts,'$.draft.segments') AS drafted "
+                        f"FROM jobs WHERE id IN ({placeholders})",
+                        ids,
+                    )
+                }
         for chunk in task["chunks"]:
             total += len(chunk["ids"])
-            if chunk["job_id"]:
-                job = self.jobs.get(chunk["job_id"])
-                artifacts = job["artifacts"]
-                if artifacts.get("draft"):
+            job = progress.get(chunk["job_id"])
+            if job:
+                if job["drafted"]:
                     drafted += len(chunk["ids"])
                 if job["status"] == "completed":
                     finished += len(chunk["ids"])
@@ -151,6 +172,9 @@ class ChapterQueue:
         }
 
     def chapter(self, book_id: str, chapter_id: str) -> dict:
+        return self.publication.chapter(book_id, chapter_id, self._chapter)
+
+    def _chapter(self, book_id: str, chapter_id: str) -> dict:
         book = self.documents.get(book_id)
         chapter = next((c for c in book["chapters"] if c["id"] == chapter_id), None)
         if not chapter:
@@ -257,7 +281,10 @@ class ChapterQueue:
 
     async def start(self):
         with self.jobs.connect() as db:
-            db.execute("UPDATE chapter_tasks SET status='queued' WHERE status='running'")
+            db.execute(
+                "UPDATE chapter_tasks SET status='queued',revision=revision+1 "
+                "WHERE status='running'"
+            )
         self.consumer = asyncio.create_task(self._consume())
 
     async def stop(self):
@@ -270,6 +297,7 @@ class ChapterQueue:
 
     async def _consume(self):
         while not self.stopping:
+            self.books.advance()
             with self.jobs.connect() as db:
                 row = db.execute(
                     "SELECT id FROM chapter_tasks WHERE status='queued' "

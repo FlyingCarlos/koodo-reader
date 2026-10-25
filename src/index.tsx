@@ -7,6 +7,7 @@ import { Provider } from "react-redux";
 import "./i18n";
 import store from "./store";
 import Router from "./router/index";
+import WholeBookDialogHost from "./components/bilingualReader/wholeBookDialog";
 import StyleUtil from "./utils/reader/styleUtil";
 import {
   initSystemFont,
@@ -24,6 +25,7 @@ const container = document.getElementById("root")!;
 ReactDOM.render(
   <Provider store={store}>
     <Router />
+    <WholeBookDialogHost />
   </Provider>,
   container
 );

@@ -4,6 +4,8 @@ import BookUtil from "../../utils/file/bookUtil";
 import { isReadingRawPDF } from "../../utils/common";
 import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual, visiblePdfPage } from "../../utils/reader/pdfTranslation";
 import { ChapterContent, TranslationApiError, TranslationBook, translationApi } from "./api";
+import WholeBookControls from "./wholeBookControls";
+import { openBookTranslation } from "./events";
 import "./reader.css";
 
 const TASK_LABELS: Record<string, string> = {
@@ -14,8 +16,8 @@ const TASK_LABELS: Record<string, string> = {
 
 // Only task/display controls live here. Content, navigation, selection menus and
 // notes stay in the existing Viewer and native PDF rendition.
-export default function TranslationPanel({ book, rendition }: {
-  book: Book; rendition: any;
+export default function TranslationPanel({ book, rendition, wholeOnly = false }: {
+  book: Book; rendition: any; wholeOnly?: boolean;
 }) {
   const [metadata, setMetadata] = useState<TranslationBook | null>(null);
   const [missing, setMissing] = useState(false);
@@ -26,6 +28,7 @@ export default function TranslationPanel({ book, rendition }: {
   const [stacked, setStacked] = useState(false);
   const [models, setModels] = useState<{slug: string; display_name: string}[]>([]);
   const [model, setModel] = useState("");
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [content, setContent] = useState<ChapterContent | null>(null);
   const chapter = metadata?.chapters.find((item) => item.start_page <= page && item.end_page >= page);
   const notify = () => window.dispatchEvent(new CustomEvent(PDF_TRANSLATION_UPDATE, { detail: { key: book.key } }));
@@ -44,10 +47,12 @@ export default function TranslationPanel({ book, rendition }: {
     let cancelled = false;
     translationApi<{slug: string; display_name: string}[]>("/models").then((result) => {
       if (!cancelled) { setModels(result); setModel(result[0]?.slug || ""); }
-    }).catch(() => { if (!cancelled) setError("订阅连接不可用，请在本机重新登录翻译后台。"); });
+    }).catch(() => { if (!cancelled) setError("订阅连接不可用，请在本机重新登录翻译后台。"); })
+      .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
   }, [loadBook]);
   useEffect(() => {
+    if (wholeOnly) return;
     const update = () => {
       const position = rendition?.getPosition();
       const index = Number(position?.chapterDocIndex || 0);
@@ -58,9 +63,9 @@ export default function TranslationPanel({ book, rendition }: {
     update();
     const timer = window.setInterval(update, 600);
     return () => window.clearInterval(timer);
-  }, [rendition]);
+  }, [rendition, wholeOnly]);
   useEffect(() => {
-    if (!metadata || !chapter) return;
+    if (wholeOnly || !metadata || !chapter) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     setContent(null);
@@ -74,7 +79,7 @@ export default function TranslationPanel({ book, rendition }: {
     };
     void update();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [metadata, chapter?.id]);
+  }, [metadata, chapter?.id, wholeOnly]);
   const upload = async (file?: File) => {
     setBusy("正在提取本书…"); setError("");
     try {
@@ -114,21 +119,23 @@ export default function TranslationPanel({ book, rendition }: {
     finally { setBusy(""); }
   };
   return <section className="pdf-translation-panel" aria-label="翻译与双语设置">
+    {!wholeOnly && <><button type="button" className="whole-book-entry" onClick={() => openBookTranslation(book)}>整本翻译…</button>
     <label className="pdf-translation-toggle"><input type="checkbox" checked={enabled}
       disabled={!isReadingRawPDF(book) || !metadata || !rendition || !!busy}
       onChange={(event) => { setEnabled(event.target.checked); setPdfBilingual(book.key, event.target.checked); }} />显示英中对照</label>
     <p className="pdf-translation-hint">{stacked ? "窄屏按原页上下对照，原 PDF 在上、中文在下。" : "左侧保留原 PDF，右侧显示当前页译文。"}选中菜单、目录、跳转与笔记继续使用原阅读器。</p>
     {!isReadingRawPDF(book) && <p className="pdf-translation-hint">请切回 PDF 原版式后开启双语显示。</p>}
+    </>}
     {error && <p className="pdf-translation-error" role="alert">{error}<button onClick={loadBook}>重试</button></p>}
     {missing ? <div className="pdf-translation-import">
       <button disabled={!!busy} onClick={() => upload()}>{busy || "提取本书"}</button>
       <label>选择原始 PDF<input type="file" accept="application/pdf,.pdf" disabled={!!busy}
         onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} /></label>
-    </div> : metadata && chapter ? <div className="pdf-translation-task">
+    </div> : wholeOnly && metadata ? <WholeBookControls book={book} metadata={metadata} models={models} model={model} setModel={setModel} modelsLoading={modelsLoading} /> : metadata && chapter ? <div className="pdf-translation-task">
       <h3>{chapter.title}</h3><p>PDF {chapter.start_page}–{chapter.end_page} 页 · 当前第 {page} 页</p>
       {!task && <><label htmlFor="pdf-translation-model">翻译模型</label>
         <select id="pdf-translation-model" value={model} onChange={(event) => setModel(event.target.value)}>
-          {!models.length && <option value="">订阅未连接</option>}
+          {!models.length && <option value="">{modelsLoading ? "正在读取可用模型…" : "订阅未连接"}</option>}
           {models.map((item) => <option key={item.slug} value={item.slug}>{item.display_name}</option>)}
         </select><button disabled={!!busy || !model || !content} onClick={() => taskAction("translate")}>翻译当前章节</button></>}
       {task && <><div role="status"><span>{TASK_LABELS[task.status] || task.status}</span><span>{task.completed} / {task.total} 段已审校</span></div>

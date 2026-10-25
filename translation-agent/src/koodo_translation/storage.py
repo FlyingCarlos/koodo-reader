@@ -61,6 +61,8 @@ class JobStore:
                 model TEXT NOT NULL, status TEXT NOT NULL, artifacts TEXT NOT NULL,
                 error_code TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )""")
+            if "revision" not in {row[1] for row in db.execute("PRAGMA table_info(jobs)")}:
+                db.execute("ALTER TABLE jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
 
     def connect(self):
         db = sqlite3.connect(self.path)
@@ -111,7 +113,7 @@ class JobStore:
         with self.connect() as db:
             db.execute(
                 "UPDATE jobs SET status=?,artifacts=?,error_code=?,"
-                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                "updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE id=?",
                 (status, json.dumps(artifacts, ensure_ascii=False), error_code, job_id),
             )
 

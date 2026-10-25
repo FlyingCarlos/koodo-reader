@@ -3,6 +3,7 @@ import "./actionDialog.css";
 import { Trans } from "react-i18next";
 import { ActionDialogProps, ActionDialogState } from "./interface";
 import toast from "react-hot-toast";
+import { openBookTranslation } from "../../bilingualReader/events";
 import MoreAction from "../moreAction";
 import MarkAction from "../markAction";
 import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
@@ -150,6 +151,12 @@ class ActionDialog extends React.Component<
           style={{ left: this.props.left, top: this.props.top }}
         >
           <div className="action-dialog-actions-container">
+            {this.props.currentBook.format === "PDF" && <button type="button"
+              className="action-dialog-edit action-dialog-translation" onClick={() => {
+                openBookTranslation(this.props.currentBook);
+                this.props.handleActionDialog(false);
+              }}><span className="icon-convert-text view-icon" aria-hidden="true" /><span className="action-name">整本翻译…</span></button>}
+
             <div
               className="action-dialog-add"
               onClick={() => {

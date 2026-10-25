@@ -43,3 +43,7 @@
   margin-left: 15px;
   font-weight: 500;
 }
+.action-dialog-translation {
+  width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left;
+}
+.action-dialog-translation:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
