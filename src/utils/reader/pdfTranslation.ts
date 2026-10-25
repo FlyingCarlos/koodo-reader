@@ -2,6 +2,8 @@ import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { ChapterContent, ParallelBlock, TranslationBook, translationApi } from "../../components/bilingualReader/api";
 
+import { sourceBlockMetrics, sourceTextRuns } from "./pdfComparisonLayout";
+
 export const PDF_TRANSLATION_CHANGE = "koodo-pdf-translation-change";
 export const PDF_TRANSLATION_UPDATE = "koodo-pdf-translation-update";
 const RANGE_KIND = "koodo-pdf-translation-v1";
@@ -173,31 +175,48 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     }
   };
 
-  const renderBlocks = (article: HTMLElement, blocks: ParallelBlock[], sourceHeight: number, sourceWidth: number) => {
+  const renderBlocks = (article: HTMLElement, blocks: ParallelBlock[], sourceWidth: number) => {
     const doc = article.ownerDocument;
-    const width = article.clientWidth - 32;
-    const scale = width / sourceWidth;
-    let previousBottom = 38;
-    blocks.forEach((block) => {
-      const anchor = block.anchors[0];
-      // Keep each translated block near its source position, then allow natural text
-      // flow to avoid overlapping Chinese. The PDF itself remains untouched.
-      const y = Math.max(0, anchor.bbox[1] * scale);
-      const gap = Math.max(12, y - previousBottom);
-      const section = doc.createElement("div");
-      section.style.marginTop = `${Math.min(gap, sourceHeight * scale)}px`;
+    const layer = doc.getElementById("koodoPDFLayer")!;
+    const pageRect = layer.getBoundingClientRect();
+    const sourceScale = pageRect.width / sourceWidth;
+    const runs = sourceTextRuns(doc, layer);
+    const metrics = blocks.map((block) => sourceBlockMetrics(block, runs, sourceScale, pageRect, fontSize));
+    const gutter = stacked ? 16 : 24;
+    const width = article.clientWidth - gutter * 2;
+    let previousBottom = 28;
+    blocks.forEach((block, index) => {
+      const metric = metrics[index];
+      const section = doc.createElement("section");
       section.dataset.sourceBlock = block.id;
+      section.dataset.sourceTop = String(metric.top);
+      section.dataset.sourceFontSize = String(metric.fontSize);
+      section.dataset.sourceMatched = String(metric.matched);
+      if (stacked) {
+        section.style.position = "relative";
+        section.style.marginTop = "18px";
+      }
+      else {
+        section.style.position = "absolute";
+        section.style.left = `${gutter}px`;
+        const measure = block.kind === "image" ? width : Math.min(width,
+          Math.max(360, (metric.right - metric.left) * 1.2), Math.max(360, metric.fontSize * 36));
+        section.style.width = `${measure}px`;
+      }
+      let paragraph: HTMLElement | null = null;
       if (block.kind === "image") {
+        const bbox = block.anchors[0].bbox;
         const image = doc.createElement("img");
         image.src = `/api/translation/books/${metadata!.id}/blocks/${block.id}/image`;
         image.alt = `第 ${block.page} 页原图，图中文字保留原样`;
-        image.width = Math.max(1, width * ((anchor.bbox[2] - anchor.bbox[0]) / sourceWidth));
-        image.height = image.width * (anchor.bbox[3] - anchor.bbox[1]) / (anchor.bbox[2] - anchor.bbox[0]);
+        image.width = Math.max(1, Math.min(width, (bbox[2] - bbox[0]) * sourceScale));
+        image.height = image.width * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]);
+        image.style.display = "block";
         image.style.maxWidth = "100%";
         image.style.height = "auto";
         section.appendChild(image);
       } else {
-        const paragraph = doc.createElement(block.kind === "heading" ? "h2" : block.kind === "code" ? "pre" : "p");
+        paragraph = doc.createElement(block.kind === "heading" ? "h2" : block.kind === "code" ? "pre" : "p");
         if (block.translation || block.kind === "code") {
           paragraph.dataset.translationBlock = block.id;
           paragraph.textContent = block.kind === "code" ? block.text : block.translation!.text;
@@ -208,13 +227,47 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         if (block.translation && block.translation.status !== "accepted") {
           const status = doc.createElement("small");
           status.textContent = block.translation.status === "needs_review" ? "待复核译文" : "初稿 · 等待审校";
+          status.style.cssText = "position:absolute;right:0;bottom:100%;font-size:11px";
           section.appendChild(status);
         }
         section.appendChild(paragraph);
       }
       article.appendChild(section);
-      previousBottom = section.offsetTop + section.offsetHeight;
+      if (stacked) {
+        if (paragraph) {
+          paragraph.style.fontSize = `${Math.max(block.kind === "caption" ? 12 : 14, metric.fontSize * .94)}px`;
+          paragraph.style.lineHeight = String(metric.lineHeight);
+        }
+        return;
+      }
+      // CJK glyphs fill more of the em than the PDF's Latin face. A small optical
+      // correction keeps the perceived sizes close, rather than matching px alone.
+      let size = Math.max(block.kind === "caption" ? 12 : 14, metric.fontSize * .94);
+      const leading = metric.lineHeight;
+      const floor = Math.max(block.kind === "caption" ? 12 : 14, size * .88);
+      const nextIndex = metrics.findIndex((item, at) => at > index && item.top > metric.top + 2);
+      const next = metrics[nextIndex];
+      const nextLeading = next && blocks[nextIndex].kind !== "image"
+        ? (next.lineHeight - 1) * Math.max(blocks[nextIndex].kind === "caption" ? 12 : 14, next.fontSize * .94) / 2 : 0;
+      const sourceTop = () => block.kind === "image" ? metric.top : metric.top - (leading - 1) * size / 2;
+      const applySize = () => {
+        if (paragraph) { paragraph.style.fontSize = `${size}px`; paragraph.style.lineHeight = String(leading); }
+        section.style.top = `${sourceTop()}px`;
+      };
+      applySize();
+      // Fit within the source paragraph's vertical band, without clipping or
+      // changing the original PDF. Bound adjustments so long translations remain
+      // readable; exceptional overflow expands the pair and is explicitly marked.
+      while (paragraph && next && section.offsetHeight > next.top - nextLeading - sourceTop() - 4 && size > floor + .01) {
+        size = Math.max(floor, size - .25); applySize();
+      }
+      const top = Math.max(sourceTop(), previousBottom + (index ? 4 : 0));
+      section.style.top = `${top}px`;
+      section.dataset.alignment = top - sourceTop() < 1 ? "aligned" : "expanded";
+      section.dataset.sourceTextTop = String(sourceTop());
+      previousBottom = top + section.offsetHeight;
     });
+    if (!stacked) article.style.height = `${Math.ceil(Math.max(pageRect.bottom, previousBottom + 20))}px`;
   };
 
   const decorate = async (index: number, force = false) => {
@@ -226,11 +279,12 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     if (!article) {
       const style = doc.createElement("style");
       style.textContent = `
-        .koodo-local-translation {position:absolute;left:${stacked ? "0" : "50%"};top:0;width:${stacked ? "100%" : "50%"};box-sizing:border-box;padding:14px 16px 24px;border-${stacked ? "top" : "left"}:1px solid ${dark ? "#596052" : "#d8d8d0"};color:${dark ? "#e7e9e3" : "#292e29"};font:${fontSize}px/1.85 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere;}
+        .koodo-local-translation {position:absolute;left:${stacked ? "0" : "50%"};top:0;width:${stacked ? "100%" : "50%"};box-sizing:border-box;padding:${stacked ? "14px 16px 24px" : "0"};border-${stacked ? "top" : "left"}:1px solid ${dark ? "#596052" : "#d8d8d0"};color:${dark ? "#e7e9e3" : "#292e29"};font:${fontSize}px/1.85 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere;}
         .koodo-local-translation p,.koodo-local-translation pre{margin:0;font:inherit;white-space:pre-wrap;}
-        .koodo-local-translation h2{font-size:1.25em;line-height:1.6;margin:0;}
+        .koodo-local-translation pre{font-family:"SFMono-Regular",Consolas,monospace;}
+        .koodo-local-translation h2{font-size:1.25em;line-height:1.5;margin:0;}
         .koodo-local-translation small,.koodo-local-translation .translation-pending{font-size:12px;opacity:.75;}
-        .koodo-local-translation header{font-size:12px;line-height:1.6;user-select:none;}
+        .koodo-local-translation header{font-size:12px;line-height:1.6;user-select:none;${stacked ? "" : "position:absolute;top:8px;left:24px;"}}
         .koodo-local-translation ::selection{background:#c9ddbe;color:#172514;}
       `;
       doc.head.appendChild(style);
@@ -238,6 +292,10 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       article.className = "koodo-local-translation";
       article.lang = "zh-CN";
       article.setAttribute("aria-label", `第 ${physicalPage(index)} 页中文译文`);
+      if (stacked) {
+        article.style.left = `${rendition.element.scrollLeft}px`;
+        article.style.width = `${rendition.element.clientWidth}px`;
+      }
       doc.body.appendChild(article);
       const layer = doc.getElementById("koodoPDFLayer")!;
       layer.style.marginLeft = "0px";
@@ -266,7 +324,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}`;
       article.appendChild(header);
       const dimension = await rendition.chapterDocList[index].text.getDimension();
-      if (blocks.length) renderBlocks(article, blocks, dimension.height, dimension.width);
+      if (blocks.length) renderBlocks(article, blocks, dimension.width);
       else {
         const message = doc.createElement("p");
         message.className = "translation-pending";
@@ -302,6 +360,24 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       };
       restoreListenerRegistration = () => { element.addEventListener = add; };
       const result = await base(element);
+      if (enabled && rendition.readerMode === "scroll") {
+        const requested = Math.min(3, Math.max(.5, Math.abs(Number(rendition.scale)) || 1));
+        // On a phone, keep the fixed PDF legible and let its native scroller pan.
+        // The existing page-width control can still zoom in and out.
+        const zoom = stacked ? Math.max(1, 720 * requested / element.clientWidth) : Math.max(1, requested);
+        const frame = rendition.getIframe();
+        if (frame) { frame.style.width = `${zoom * 100}%`; rendition.pdfScale = 0; }
+        element.scrollLeft = Math.max(0, (element.scrollWidth - element.clientWidth) / 2);
+        if (stacked) {
+          const keepTranslationVisible = () => {
+            mounted.forEach((index) => {
+              const article = rendition.getSubDocument(index)?.querySelector(".koodo-local-translation");
+              if (article) article.style.left = `${element.scrollLeft}px`;
+            });
+          };
+          element.addEventListener("scroll", keepTranslationVisible);
+        }
+      }
       const doc: Document | null = rendition.getDocument();
       if (enabled && !stacked && rendition.readerMode === "scroll") doc?.querySelectorAll<HTMLElement>(".pdf-container").forEach((container) => {
         container.style.paddingTop = `${parseFloat(container.style.paddingTop) / 2}%`;
@@ -314,7 +390,18 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       if (enabled) void decorate(index);
       return result;
   });
-  if (enabled) wrap("getPdfScale", async (base) => (await base()) / (stacked ? 1 : 2));
+  if (enabled) wrap("getPdfScale", async (base) => {
+    const original = await base();
+    if (stacked) return original;
+    const index = rendition.templateChapterDocIndex || 0;
+    const dimension = await rendition.chapterDocList[index].text.getDimension();
+    const frame = rendition.getSubIframe(index);
+    return Math.min(original, (frame.clientWidth / 2 - 8) / dimension.width);
+  });
+  if (enabled && typeof rendition.getPageSize === "function") wrap("getPageSize", (base, index) => {
+    const size = base(index);
+    return size && rendition.readerMode === "scroll" ? { ...size, scrollLeft: rendition.element.scrollLeft } : size;
+  });
   wrap("getHighlightCoords", async (base, index) => {
     const page = index ?? Number(rendition.getPosition().chapterDocIndex || 0);
     const doc = rendition.getSubDocument(page);

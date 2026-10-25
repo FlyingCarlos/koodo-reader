@@ -1,4 +1,5 @@
 export interface BackgroundProps {
+  comparisonViewport?: { pageOffset: string; pageWidth: string };
   readerMode: string;
   scale: string;
   margin: string;

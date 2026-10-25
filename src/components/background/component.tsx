@@ -87,6 +87,9 @@ class Background extends React.Component<BackgroundProps, BackgroundState> {
   }
 
   render() {
+    const pageOffset = this.props.comparisonViewport?.pageOffset || this.state.pageOffset;
+    const pageWidth = this.props.comparisonViewport?.pageWidth || this.state.pageWidth;
+    const inset = this.props.comparisonViewport ? 10 : 50;
     return (
       <>
         <div
@@ -94,9 +97,9 @@ class Background extends React.Component<BackgroundProps, BackgroundState> {
           style={
             this.state.isSingle
               ? {
-                  left: this.state.pageOffset,
-                  marginLeft: -50,
-                  width: `calc(${this.state.pageWidth} + 98px)`,
+                  left: pageOffset,
+                  marginLeft: -inset,
+                  width: `calc(${pageWidth} + ${inset * 2 - 2}px)`,
                   boxShadow: "0 0 0px rgba(191, 191, 191, 1)",
                 }
               : {
@@ -111,9 +114,9 @@ class Background extends React.Component<BackgroundProps, BackgroundState> {
           style={
             this.state.isSingle
               ? {
-                  marginLeft: -50,
-                  left: this.state.pageOffset,
-                  width: `calc(${this.state.pageWidth} + 100px)`,
+                  marginLeft: -inset,
+                  left: pageOffset,
+                  width: `calc(${pageWidth} + ${inset * 2}px)`,
                 }
               : {
                   left: this.props.isNavLocked ? 307 : 7,
@@ -164,9 +167,9 @@ class Background extends React.Component<BackgroundProps, BackgroundState> {
           style={
             this.state.isSingle
               ? {
-                  marginLeft: -50,
-                  left: this.state.pageOffset,
-                  width: `calc(${this.state.pageWidth} + 102px)`,
+                  marginLeft: -inset,
+                  left: pageOffset,
+                  width: `calc(${pageWidth} + ${inset * 2 + 2}px)`,
                   boxShadow: "0 0 0px rgba(191, 191, 191, 1)",
                   ...(this.state.readerBackgroundUrl
                     ? {

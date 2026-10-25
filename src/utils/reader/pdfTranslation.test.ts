@@ -27,6 +27,8 @@ test.each([[165, "stacked", 2], [816, "columns", 1]])(
     const native: any = {
       readerMode: "scroll", element, handleRenderPDFChapter: jest.fn(),
       renderTo: jest.fn(), getPdfScale: async () => 2, getDocument: () => document,
+      getIframe: () => ({ style: {} }), getSubIframe: () => ({ clientWidth: width }),
+      chapterDocList: [{ text: { getDimension: async () => ({ width: 400 }) } }],
       removeContent: jest.fn(), getHighlightCoords: jest.fn(), renderHighlighters: jest.fn(),
       createOneNote: jest.fn(), removeOneNote: jest.fn(), getPositionByChapter: jest.fn(), goToPosition: jest.fn(),
     };

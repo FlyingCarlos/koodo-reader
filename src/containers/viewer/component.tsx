@@ -47,7 +47,8 @@ import { getOcrResult, getOcrResultV2 } from "../../utils/request/reader";
 import { BookHelper } from "../../assets/lib/kookit.min";
 import { parseWithSystemOCR } from "../../utils/request/common";
 import { isElectron } from "react-device-detect";
-import { attachPdfTranslation, PDF_TRANSLATION_CHANGE } from "../../utils/reader/pdfTranslation";
+import { attachPdfTranslation, isPdfBilingual, PDF_TRANSLATION_CHANGE } from "../../utils/reader/pdfTranslation";
+import { comparisonViewport } from "../../utils/reader/pdfComparisonLayout";
 declare var window: any;
 let lock = false; //prevent from clicking too fasts
 
@@ -687,6 +688,9 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
     }
   };
   render() {
+    const comparison = isReadingRawPDF(this.props.currentBook) && isPdfBilingual(this.props.currentBook.key)
+      ? comparisonViewport(document.body.clientWidth, parseFloat(this.props.scale), this.props.isNavLocked,
+        this.props.isSettingLocked || this.props.isDockedRight) : null;
     let isReadingAid =
       !isReadingRawPDF(this.props.currentBook) &&
       (this.props.isParagraphMode || this.props.isSpeedReading);
@@ -755,12 +759,12 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
                   // marginRight: this.state.pageOffset,
                   paddingLeft: "0px",
                   paddingRight: "0px",
-                  left: this.state.pageOffset,
-                  width: this.state.pageWidth,
+                  left: comparison?.pageOffset || this.state.pageOffset,
+                  width: comparison?.pageWidth || this.state.pageWidth,
                 }
               : {
-                  left: this.state.pageOffset,
-                  width: this.state.pageWidth,
+                  left: comparison?.pageOffset || this.state.pageOffset,
+                  width: comparison?.pageWidth || this.state.pageWidth,
                 }
           }
         ></div>
@@ -773,7 +777,7 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
           this.props.isSpeedReading) &&
           !isReadingRawPDF(this.props.currentBook)) ||
         this.props.isMergeWord ? null : this.props.currentBook.key ? (
-          <Background />
+          <Background comparisonViewport={comparison || undefined} />
         ) : null}
       </>
     );

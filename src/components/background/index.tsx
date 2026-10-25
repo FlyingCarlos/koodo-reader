@@ -1,9 +1,11 @@
 import { connect } from "react-redux";
 import { stateType } from "../../store";
 import Background from "./component";
+import { BackgroundProps } from "./interface";
 
-const mapStateToProps = (state: stateType) => {
+const mapStateToProps = (state: stateType, ownProps: Pick<BackgroundProps, "comparisonViewport">) => {
   return {
+    ...ownProps,
     readerMode: state.reader.readerMode,
     isNavLocked: state.reader.isNavLocked,
     isSettingLocked: state.reader.isSettingLocked,
