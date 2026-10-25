@@ -39,6 +39,7 @@ export interface ReaderProps {
 }
 
 export interface ReaderState {
+  isTranslationOpen: boolean;
   isOpenRightPanel: boolean;
   isOpenTopPanel: boolean;
   isOpenBottomPanel: boolean;

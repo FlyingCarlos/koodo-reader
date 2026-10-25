@@ -21,6 +21,7 @@ dist/
 
 # misc
 /logs/
+/.impeccable/review/
 /translation-agent/.venv/
 /translation-agent/.pytest_cache/
 /translation-agent/.ruff_cache/

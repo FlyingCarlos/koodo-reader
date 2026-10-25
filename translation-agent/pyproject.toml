@@ -8,6 +8,9 @@ dependencies = [
   "httpx>=0.28,<1",
   "httpx2>=2.16,<3",
   "PyJWT[crypto]>=2.10,<3",
+  "pymupdf>=1.26,<2",
+  "starlette>=1,<2",
+  "uvicorn>=0.40,<1",
 ]
 
 [project.scripts]
