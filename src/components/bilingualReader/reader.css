@@ -1,22 +1,10 @@
-.reader-bilingual-button {
-  position: fixed; top: 12px; right: 170px; z-index: 20;
-  border: 1px solid rgba(90, 96, 80, .3); background: var(--main-bg-color, #fffef9);
-  color: var(--main-text-color, #333); border-radius: 6px; padding: 9px 14px;
-  font: 500 14px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; cursor: pointer;
-}
 .pdf-translation-panel {
-  position: fixed; top: 60px; right: 22px; z-index: 21; width: 330px;
-  max-width: calc(100vw - 24px); max-height: calc(100vh - 84px); overflow-y: auto;
-  box-sizing: border-box; padding: 20px; border: 1px solid var(--border-color, #d8d8d0);
-  border-radius: 8px; background: var(--main-bg-color, #fffef9); color: var(--main-text-color, #333);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .12); font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  box-sizing: border-box; font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
 }
-.pdf-translation-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-.pdf-translation-heading h2 { font-size: 17px; margin: 0; }
 .pdf-translation-panel button, .pdf-translation-panel select { font: inherit; color: inherit; background: transparent; border: 1px solid #b6bbb1; border-radius: 5px; padding: 7px 12px; cursor: pointer; }
 .pdf-translation-panel button:hover { background: rgba(127,127,127,.12); }
 .pdf-translation-panel button:disabled { opacity: .5; cursor: default; }
-.pdf-translation-panel :focus-visible, .reader-bilingual-button:focus-visible { outline: 2px solid #507449; outline-offset: 3px; }
+.pdf-translation-panel :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .pdf-translation-toggle { display: flex; gap: 9px; align-items: center; cursor: pointer; }
 .pdf-translation-toggle input { width: 18px; height: 18px; accent-color: #42673e; }
 .pdf-translation-hint { font-size: 12px; line-height: 1.8; margin: 12px 0 20px; }
@@ -26,7 +14,7 @@
 .pdf-translation-task select { display: block; width: 100%; margin: 6px 0 12px; }
 .pdf-translation-task [role=status] { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; }
 .pdf-translation-task progress { display: block; width: 100%; height: 4px; margin: 10px 0 14px; accent-color: #42673e; }
-.pdf-translation-error { color: #a23228; font-size: 13px; }
+.pdf-translation-error { color: inherit; font-size: 13px; }
 .pdf-translation-error button { margin-left: 10px; }
 .pdf-translation-import label { display: block; margin-top: 14px; }
 .pdf-translation-import input { width: 100%; font: inherit; font-size: 12px; margin-top: 6px; }

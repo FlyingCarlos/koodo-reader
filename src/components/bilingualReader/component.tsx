@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import Book from "../../models/Book";
 import BookUtil from "../../utils/file/bookUtil";
 import { isReadingRawPDF } from "../../utils/common";
-import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual, visiblePdfPage } from "../../utils/reader/pdfTranslation";
 import { ChapterContent, TranslationApiError, TranslationBook, translationApi } from "./api";
 import "./reader.css";
@@ -15,8 +14,8 @@ const TASK_LABELS: Record<string, string> = {
 
 // Only task/display controls live here. Content, navigation, selection menus and
 // notes stay in the existing Viewer and native PDF rendition.
-export default function TranslationPanel({ book, rendition, onClose }: {
-  book: Book; rendition: any; onClose: () => void;
+export default function TranslationPanel({ book, rendition }: {
+  book: Book; rendition: any;
 }) {
   const [metadata, setMetadata] = useState<TranslationBook | null>(null);
   const [missing, setMissing] = useState(false);
@@ -114,11 +113,7 @@ export default function TranslationPanel({ book, rendition, onClose }: {
     } catch (failure) { setError(failure instanceof Error ? failure.message : "恢复格式失败，已有译文仍保留。"); }
     finally { setBusy(""); }
   };
-  return <aside className="pdf-translation-panel" aria-label="翻译与双语设置" style={{
-    backgroundColor: ConfigService.getReaderConfig("backgroundColor") || "#fffef9",
-    color: ConfigService.getReaderConfig("textColor") || "#333",
-  }}>
-    <div className="pdf-translation-heading"><h2>翻译与双语</h2><button onClick={onClose}>收起</button></div>
+  return <section className="pdf-translation-panel" aria-label="翻译与双语设置">
     <label className="pdf-translation-toggle"><input type="checkbox" checked={enabled}
       disabled={!isReadingRawPDF(book) || !metadata || !rendition || !!busy}
       onChange={(event) => { setEnabled(event.target.checked); setPdfBilingual(book.key, event.target.checked); }} />显示英中对照</label>
@@ -149,5 +144,5 @@ export default function TranslationPanel({ book, rendition, onClose }: {
         </>}
       </div>}
     </div> : !error && <p role="status">正在读取章节…</p>}
-  </aside>;
+  </section>;
 }

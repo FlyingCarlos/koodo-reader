@@ -73,3 +73,32 @@
   right: 10px;
   cursor: pointer;
 }
+.setting-translation-section {
+  margin: 14px 20px 18px;
+}
+.setting-translation-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.setting-translation-toggle .icon-dropdown {
+  font-size: 12px;
+}
+.setting-translation-toggle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.setting-translation-content {
+  padding-top: 10px;
+}

@@ -14,6 +14,7 @@ import {
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { sliderConfigs } from "../../../constants/dropdownList";
 import toast from "react-hot-toast";
+import TranslationPanel from "../../../components/bilingualReader/component";
 
 class SettingPanel extends React.Component<
   SettingPanelProps,
@@ -27,6 +28,7 @@ class SettingPanel extends React.Component<
           ? true
           : false,
       isShowMenu: false,
+      isTranslationOpen: false,
     };
   }
 
@@ -92,6 +94,18 @@ class SettingPanel extends React.Component<
         </div>
         <div className="setting-panel">
           <ModeControl />
+          {this.props.currentBook.format === "PDF" && <div className="setting-translation-section">
+            <button type="button" className="setting-translation-toggle"
+              aria-expanded={this.state.isTranslationOpen} aria-controls="reading-translation-controls"
+              onClick={() => this.setState({ isTranslationOpen: !this.state.isTranslationOpen })}>
+              <span>翻译与双语</span>
+              <span className="icon-dropdown" aria-hidden="true" style={{ transform: this.state.isTranslationOpen ? "rotate(180deg)" : undefined }} />
+            </button>
+            {this.state.isTranslationOpen && <div id="reading-translation-controls" className="setting-translation-content">
+              <TranslationPanel key={this.props.currentBook.key} book={this.props.currentBook}
+                rendition={this.props.htmlBook?.rendition} />
+            </div>}
+          </div>}
           <ThemeList />
           {sliderConfigs
             .filter((item) => {

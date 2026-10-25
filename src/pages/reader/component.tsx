@@ -28,7 +28,6 @@ import {
 import SupportDialog from "../../components/dialogs/supportDialog";
 import { READING_PANEL_TOGGLE_EVENT } from "../../utils/reader/mouseEvent";
 import { isReadingRawPDF, throttle } from "../../utils/common";
-import TranslationPanel from "../../components/bilingualReader/component";
 declare var window: any;
 let lock = false; //prevent from clicking too fasts
 let throttleTime = 200;
@@ -103,7 +102,6 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
   constructor(props: ReaderProps) {
     super(props);
     this.state = {
-      isTranslationOpen: false,
       isOpenTopPanel: false,
       isOpenBottomPanel: false,
       hoverPanel: "",
@@ -374,12 +372,6 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
     };
     return (
       <div className="viewer">
-        {this.props.currentBook.format === "PDF" && <button className="reader-bilingual-button"
-          aria-expanded={this.state.isTranslationOpen}
-          onClick={() => this.setState({ isTranslationOpen: !this.state.isTranslationOpen })}>翻译与双语</button>}
-        {this.state.isTranslationOpen && this.props.currentBook.format === "PDF" && <TranslationPanel
-          book={this.props.currentBook} rendition={this.props.htmlBook?.rendition}
-          onClose={() => this.setState({ isTranslationOpen: false })} />}
         <Tooltip id="my-tooltip" style={{ zIndex: 25 }} />
 
         <div
