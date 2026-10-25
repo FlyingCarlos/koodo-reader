@@ -1,5 +1,6 @@
 """Durable whole-book coordination over the existing single chapter worker."""
 
+import json
 import uuid
 
 ACTIVE = {"queued", "running"}
@@ -14,6 +15,56 @@ class BookQueue:
                 book_id TEXT PRIMARY KEY, id TEXT NOT NULL, model TEXT NOT NULL,
                 status TEXT NOT NULL, current_chapter TEXT, error_code TEXT
             )""")
+
+    def library(self):
+        """One lightweight index for all visible library cards; never load job artifacts."""
+        with self.queue.jobs.connect() as db:
+            aliases = list(db.execute("SELECT key,book_id FROM book_aliases"))
+            tasks = list(db.execute("SELECT book_id,chapter_id,status,chunks FROM chapter_tasks"))
+            completed_jobs = {
+                row["id"]
+                for row in db.execute(
+                    "SELECT id FROM jobs WHERE status='completed' "
+                    "AND json_array_length(artifacts,'$.accepted.segments') > 0"
+                )
+            }
+        grouped = {}
+        for task in tasks:
+            completed = sum(
+                len(chunk["ids"])
+                for chunk in json.loads(task["chunks"])
+                if chunk["job_id"] in completed_jobs
+            )
+            grouped.setdefault(task["book_id"], {})[task["chapter_id"]] = {
+                "completed": completed,
+                "status": task["status"],
+            }
+        books = {}
+        for book_id, chapters in grouped.items():
+            if not any(c["completed"] for c in chapters.values()):
+                continue
+            try:
+                book = self.queue.documents.get(book_id)
+            except (KeyError, ValueError):
+                continue
+            translatable = [c for c in book["chapters"] if c["text_count"]]
+            completed = sum(chapters.get(c["id"], {}).get("completed", 0) for c in translatable)
+            total = sum(c["text_count"] for c in translatable)
+            if not completed:
+                continue
+            complete = (
+                bool(total)
+                and completed == total
+                and all(
+                    chapters.get(c["id"], {}).get("status") == "completed" for c in translatable
+                )
+            )
+            books[book_id] = {
+                "completed": completed,
+                "total": total,
+                "complete": complete,
+            }
+        return {row["key"]: books[row["book_id"]] for row in aliases if row["book_id"] in books}
 
     def get(self, book_id):
         with self.queue.jobs.connect() as db:

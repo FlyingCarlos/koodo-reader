@@ -1,3 +1,4 @@
+import { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
 import { renderOriginalPdfCover } from "./pdfCover";
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
@@ -7,7 +8,7 @@ import { sourceBlockMetrics, sourceTextRuns } from "./pdfComparisonLayout";
 import { renderTranslationSlice, renderTranslationTable, renderTranslationToc, translationFragments } from "./pdfRichText";
 
 export const PDF_TRANSLATION_CHANGE = "koodo-pdf-translation-change";
-export const PDF_TRANSLATION_UPDATE = "koodo-pdf-translation-update";
+export { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
 const RANGE_KIND = "koodo-pdf-translation-v1";
 
 export const isPdfBilingual = (key: string): boolean =>

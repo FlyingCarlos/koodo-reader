@@ -1,3 +1,4 @@
+import TranslationBadge from "../bilingualReader/translationBadge";
 import React from "react";
 import "./bookCoverItem.css";
 import { BookCoverProps } from "./interface";
@@ -84,6 +85,7 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
         }}
       >
         <div className="book-cover-item-header">
+          <TranslationBadge book={props.book} inline />
           <div className="reading-progress-icon">
             <div style={{ position: "relative", left: "4px" }}>
               {percentage && !isNaN(parseFloat(percentage))

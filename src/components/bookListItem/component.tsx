@@ -1,3 +1,4 @@
+import TranslationBadge from "../bilingualReader/translationBadge";
 import React from "react";
 import "./bookListItem.css";
 import { BookItemProps } from "./interface";
@@ -161,6 +162,7 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
         >
           <div className="book-item-list-subtitle">
             <div className="book-item-list-subtitle-text">
+              <TranslationBadge book={props.book} inline />
               {!isBookOffline && (
                 <span className="icon-cloud book-download-action"></span>
               )}

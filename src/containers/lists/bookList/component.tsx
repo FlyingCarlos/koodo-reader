@@ -1,3 +1,4 @@
+import { TranslationLibraryProvider } from "../../../components/bilingualReader/translationLibrary";
 import React from "react";
 import "./booklist.css";
 import BookCardItem from "../../../components/bookCardItem";
@@ -411,7 +412,7 @@ class BookList extends React.Component<BookListProps, BookListState> {
     }
     const { books, bookMode } = this.handleBooks();
     return (
-      <>
+      <TranslationLibraryProvider>
         <div
           className="book-list-header"
           style={
@@ -492,7 +493,7 @@ class BookList extends React.Component<BookListProps, BookListState> {
             </ul>
           </div>
         </div>
-      </>
+      </TranslationLibraryProvider>
     );
   }
 }

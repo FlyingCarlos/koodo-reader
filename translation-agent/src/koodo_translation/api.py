@@ -95,6 +95,10 @@ async def books(request: Request):
     return JSONResponse(book_summary(book), status_code=201)
 
 
+async def library(request):
+    return JSONResponse(await run_in_threadpool(request.app.state.queue.books.library))
+
+
 async def book(request):
     return JSONResponse(
         book_summary(request.app.state.documents.get(request.path_params["book_id"]))
@@ -192,6 +196,7 @@ app = Starlette(
         Route("/healthz", health),
         Route("/api/translation/status", status),
         Route("/api/translation/models", models),
+        Route("/api/translation/library", library),
         Route("/api/translation/books", books, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}", book),
         Route("/api/translation/books/{book_id}/whole", whole_book, methods=["GET", "POST"]),

@@ -1,3 +1,4 @@
+import TranslationBadge from "../bilingualReader/translationBadge";
 import React from "react";
 import "./bookCardItem.css";
 import { BookCardProps } from "./interface";
@@ -104,6 +105,7 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
                 }
           }
         >
+          <TranslationBadge book={props.book} />
           {!isCoverExist ||
           (props.book.format === "PDF" &&
             ConfigService.getReaderConfig("isDisablePDFCover") === "yes") ? (

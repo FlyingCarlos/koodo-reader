@@ -110,6 +110,9 @@ def test_format_endpoint_preserves_translations_and_reuses_saved_presentation(
         queue.save(task)
         path = f"/api/translation/books/{book['id']}/chapters/{chapter_id}"
         before = client.get(path).json()
+        assert client.get("/api/translation/library").json() == {
+            "cache": {"completed": 1, "total": 1, "complete": True}
+        }
         assert client.post(path + "/pages/1/format").status_code == 403
         restored = client.post(path + "/pages/1/format", headers=headers)
         assert restored.status_code == 200

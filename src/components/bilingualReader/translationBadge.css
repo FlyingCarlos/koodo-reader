@@ -1,0 +1,21 @@
+.book-translation-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  max-width: calc(100% - 8px);
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: #314c6e;
+  color: #fff;
+  font: 500 11px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.book-translation-badge--complete { background: #1f5d43; }
+.book-translation-badge--inline { position: relative; top: auto; right: auto; margin-right: 6px; vertical-align: middle; }
+.book-translation-badge:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+.book-translation-badge:hover { text-decoration: underline; text-underline-offset: 3px; }
+.book-item-cover { position: relative; }

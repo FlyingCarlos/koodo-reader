@@ -144,3 +144,36 @@ def test_publication_failure_isolated_from_worker(setup_book, monkeypatch):
     monkeypatch.setattr(queue.publication, "publish", failed_write)
     queue.books.advance()
     assert queue.books.summary(book["id"])["status"] == "failed"
+
+
+def test_library_badges_require_accepted_text_and_distinguish_complete_books(setup_book):
+    queue, book, data = setup_book
+    queue.documents.import_pdf(data, "second-alias", "Same Book")
+    assert queue.books.library() == {}  # Extraction alone is not a translated edition.
+    task = queue.create(book["id"], book["chapters"][0]["id"], "model")
+    job = queue.jobs.start({"fixture": True}, "model")
+    queue.jobs.save(job["id"], "running", {"draft": {"segments": [{"text": "未审校初稿"}]}})
+    task["chunks"][0]["job_id"] = job["id"]
+    queue.save(task)
+    assert queue.books.library() == {}  # A draft must not advertise an approved translation.
+    complete(queue, task)
+    index = queue.books.library()
+    assert (
+        index["book"]
+        == index["second-alias"]
+        == {
+            "completed": 1,
+            "total": 3,
+            "complete": False,
+        }
+    )
+    for chapter in book["chapters"][1:]:
+        complete(queue, queue.create(book["id"], chapter["id"], "model"))
+    count = len(queue.jobs.list_jobs())
+    assert queue.books.library()["book"] == {"completed": 3, "total": 3, "complete": True}
+    assert len(queue.jobs.list_jobs()) == count
+    assert queue.books.get(book["id"]) is None  # Manual chapter completion also earns the badge.
+    task = queue.for_chapter(book["id"], book["chapters"][0]["id"])
+    task["status"] = "needs_review"
+    queue.save(task)
+    assert queue.books.library()["book"]["complete"] is False
