@@ -19,6 +19,7 @@ declare var window: any;
 type TransCache = Record<string, Record<string, string>>;
 
 class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
+  private boundRendition: any = null;
   isFirst: Boolean;
   timeInterval: any;
   lastBatchTranslationTriggerAt: number;
@@ -57,6 +58,7 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
   }
 
   componentWillUnmount() {
+    this.boundRendition = null;
     this.props.handleJumpPosition(null);
     if (this.timeInterval) {
       clearInterval(this.timeInterval);
@@ -64,19 +66,22 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
   }
 
   async UNSAFE_componentWillReceiveProps(nextProps: PageWidgetProps) {
+    if (!nextProps.htmlBook) this.boundRendition = null;
     if (
-      nextProps.htmlBook !== this.props.htmlBook &&
       nextProps.htmlBook &&
-      !this.props.htmlBook
+      nextProps.htmlBook.rendition !== this.boundRendition
     ) {
-      await this.handlePageNum(nextProps.htmlBook.rendition);
+      const rendition = nextProps.htmlBook.rendition;
+      this.boundRendition = rendition;
       nextProps.htmlBook.rendition.on("page-changed", async () => {
+        if (this.boundRendition !== rendition) return;
         await this.handlePageNum(nextProps.htmlBook.rendition);
         await this.handleBatchTranslation(nextProps.htmlBook.rendition);
       });
       nextProps.htmlBook.rendition.on(
         "annotation-changed",
         async (chapterDocIndex: number) => {
+          if (this.boundRendition !== rendition) return;
           let annotationData =
             nextProps.htmlBook.rendition.getAnnotationData(chapterDocIndex);
           let notes = await ConfigUtil.getNotesByBookKeyAndTypeWithSort(
@@ -127,10 +132,12 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
         }
       );
       nextProps.htmlBook.rendition.on("rendered", async () => {
+        if (this.boundRendition !== rendition) return;
         await this.handlePageNum(nextProps.htmlBook.rendition);
         await this.handleBatchTranslation(nextProps.htmlBook.rendition);
         await this.handleWordDefinition(nextProps.htmlBook.rendition);
       });
+      await this.handlePageNum(rendition);
     }
     if (nextProps.readerMode !== this.props.readerMode) {
       this.setState({ isSingle: nextProps.readerMode !== "double" });
@@ -297,7 +304,7 @@ class PageWidget extends React.Component<PageWidgetProps, PageWidgetState> {
   }
   async handlePageNum(rendition) {
     let pageInfo = await rendition.getProgress();
-    if (!pageInfo) {
+    if (!pageInfo || rendition !== this.boundRendition) {
       return;
     }
     if (isReadingRawPDF(this.props.currentBook)) {

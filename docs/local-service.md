@@ -61,4 +61,4 @@ Homepage 的 `/Users/carlosz/service/homepage/config/services.yaml` 在 `macOS �
 
 书库、笔记和原阅读进度仍由 Web 客户端管理；官方网站的书库不会自动迁移到本地域名。迁移或备份书籍与笔记应使用阅读器自身的导入、导出及备份功能。
 
-用户在 PDF 阅读器中选择“英中双语阅读”后，可以将该书的副本交给本机后台提取和翻译。后台源 PDF、段落坐标、译文及任务保存在 `~/Library/Application Support/koodoreader/translation-agent/`，不提供跨设备同步，也不改变原书文件。备份翻译结果时需另行备份此目录；其中包含敏感授权文件，不能提交到 Git。授权、恢复和已知提取限制见 [翻译后台说明](../translation-agent/README.md)。后台异常会令整个 LaunchAgent 重新启动；正常重启会恢复排队任务，用户主动暂停的任务保持暂停。
+用户在原 PDF 阅读器中打开“翻译与双语”面板后，可以将该书的副本交给本机后台提取和翻译。双语内容直接附加到原生 PDF 页面，原阅读器组件保留。后台源 PDF、段落坐标、译文及任务保存在 `~/Library/Application Support/koodoreader/translation-agent/`，不提供跨设备同步，也不改变原书文件。备份翻译结果时需另行备份此目录；其中包含敏感授权文件，不能提交到 Git。授权、恢复和已知提取限制见 [翻译后台说明](../translation-agent/README.md)。后台异常会令整个 LaunchAgent 重新启动；正常重启会恢复排队任务，用户主动暂停的任务保持暂停。

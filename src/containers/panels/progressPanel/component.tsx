@@ -9,6 +9,8 @@ class ProgressPanel extends React.Component<
   ProgressPanelProps,
   ProgressPanelState
 > {
+  private boundRendition: any = null;
+  private boundBook: any = null;
   constructor(props: ProgressPanelProps) {
     super(props);
     this.state = {
@@ -20,23 +22,32 @@ class ProgressPanel extends React.Component<
       isEntered: false,
     };
   }
+  componentWillUnmount() {
+    this.boundRendition = null;
+  }
   async UNSAFE_componentWillReceiveProps(nextProps: ProgressPanelProps) {
+    if (!nextProps.htmlBook) this.boundRendition = null;
     if (
-      nextProps.htmlBook !== this.props.htmlBook &&
       nextProps.htmlBook &&
-      !this.props.htmlBook
+      nextProps.htmlBook.rendition !== this.boundRendition
     ) {
-      await this.handlePageNum(nextProps.htmlBook.rendition);
+      const rendition = nextProps.htmlBook.rendition;
+      this.boundRendition = rendition;
+      this.boundBook = nextProps.htmlBook;
+      this.setState({ targetPage: 0 });
       nextProps.htmlBook.rendition.on("page-changed", async () => {
+        if (this.boundRendition !== rendition || !this.props.htmlBook) return;
         this.handleLocation();
         await this.handlePageNum(nextProps.htmlBook.rendition);
         this.handleCurrentChapterIndex(nextProps.htmlBook.rendition);
         this.props.handleFetchPercentage(this.props.currentBook);
       });
       nextProps.htmlBook.rendition.on("rendered", async () => {
+        if (this.boundRendition !== rendition || !this.props.htmlBook) return;
         await this.handlePageNum(nextProps.htmlBook.rendition);
         this.handleCurrentChapterIndex(nextProps.htmlBook.rendition);
       });
+      await this.handlePageNum(rendition);
       this.handleCurrentChapterIndex(nextProps.htmlBook.rendition);
       let bookLocation: {
         text: string;
@@ -60,6 +71,7 @@ class ProgressPanel extends React.Component<
     }
   }
   handleLocation = () => {
+    if (!this.props.htmlBook) return;
     let position = this.props.htmlBook.rendition.getPosition();
     ConfigService.setObjectConfig(
       this.props.currentBook.key,
@@ -78,14 +90,14 @@ class ProgressPanel extends React.Component<
     if (!href) {
       return;
     }
-    let chapterIndex = _.findIndex(this.props.htmlBook.flattenChapters, {
+    let chapterIndex = _.findIndex(this.boundBook?.flattenChapters || [], {
       href,
     });
     this.setState({ targetChapterIndex: chapterIndex + 1 });
   };
   async handlePageNum(rendition) {
     let pageInfo = await rendition.getProgress();
-    if (!pageInfo) {
+    if (!pageInfo || rendition !== this.boundRendition) {
       return;
     }
     this.setState({
@@ -152,11 +164,12 @@ class ProgressPanel extends React.Component<
               let fieldVal = event.target.value;
               this.setState({ targetPage: fieldVal });
             }}
-            onBlur={(event) => {
+            onBlur={async (event) => {
               if (event.target.value.trim()) {
-                this.props.htmlBook.rendition.goToPage(
+                await this.props.htmlBook.rendition.goToPage(
                   parseInt(event.target.value.trim())
                 );
+                this.setState({ targetPage: "" });
               } else {
                 this.setState({ targetPage: "" });
               }

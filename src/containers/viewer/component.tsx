@@ -47,10 +47,17 @@ import { getOcrResult, getOcrResultV2 } from "../../utils/request/reader";
 import { BookHelper } from "../../assets/lib/kookit.min";
 import { parseWithSystemOCR } from "../../utils/request/common";
 import { isElectron } from "react-device-detect";
+import { attachPdfTranslation, PDF_TRANSLATION_CHANGE } from "../../utils/reader/pdfTranslation";
 declare var window: any;
 let lock = false; //prevent from clicking too fasts
 
 class Viewer extends React.Component<ViewerProps, ViewerState> {
+  private gestureDocuments = new WeakSet<Document>();
+  private translationChange = (event: Event) => {
+    if ((event as CustomEvent).detail?.key !== this.props.currentBook.key) return;
+    if (lock) this._pendingRerender = true;
+    else this.handleRenderBook();
+  };
   private resizeHandler: (() => void) | null = null;
   private _pendingRerender = false;
   lock: boolean;
@@ -91,6 +98,7 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
     this.props.handleFetchPlugins();
   }
   componentDidMount() {
+    window.addEventListener(PDF_TRANSLATION_CHANGE, this.translationChange);
     this.handleRenderBook();
     //make sure page width is always 12 times, section = Math.floor(element.clientWidth / 12), or text will be blocked
     this.setState(
@@ -127,6 +135,8 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
     window.addEventListener("resize", this.resizeHandler);
   }
   componentWillUnmount() {
+    window.removeEventListener(PDF_TRANSLATION_CHANGE, this.translationChange);
+    if (isReadingRawPDF(this.props.currentBook)) this.state.rendition?.removeContent();
     if (this.resizeHandler) {
       window.removeEventListener("resize", this.resizeHandler);
       this.resizeHandler = null;
@@ -420,6 +430,7 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
       },
       Kookit
     );
+    if (isReadingRawPDF(this.props.currentBook)) attachPdfTranslation(rendition, this.props.currentBook);
     if (this.props.currentBook.format === "TXT") {
       let bookLocation = ConfigService.getObjectConfig(
         this.props.currentBook.key,
@@ -501,11 +512,15 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
               : bookLocation.count || 0,
             percentage: bookLocation.percentage,
             cfi: bookLocation.cfi,
+            localTranslation: (bookLocation as any).localTranslation,
             isFirst: true,
           })
         );
       }
     }
+    // Initial PDF page rendering can finish before the rendered subscription is
+    // installed. Bind its native selection handlers immediately as well.
+    this.handleBindGesture();
     rendition.on("rendered", async () => {
       this.handleLocation();
       let bookLocation: {
@@ -610,7 +625,8 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
     );
     for (let i = 0; i < docs.length; i++) {
       let doc = docs[i];
-      if (!doc) continue;
+      if (!doc || this.gestureDocuments.has(doc)) continue;
+      this.gestureDocuments.add(doc);
       doc.addEventListener("click", () => {
         this.props.handleLeaveReader("left");
         this.props.handleLeaveReader("right");
