@@ -3,7 +3,7 @@ import Book from "../../models/Book";
 import BookUtil from "../../utils/file/bookUtil";
 import { isReadingRawPDF } from "../../utils/common";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
-import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual } from "../../utils/reader/pdfTranslation";
+import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual, visiblePdfPage } from "../../utils/reader/pdfTranslation";
 import { ChapterContent, TranslationApiError, TranslationBook, translationApi } from "./api";
 import "./reader.css";
 
@@ -53,7 +53,7 @@ export default function TranslationPanel({ book, rendition, onClose }: {
       const position = rendition?.getPosition();
       const index = Number(position?.chapterDocIndex || 0);
       const offset = rendition?.isStartFromEven === "yes" && rendition?.readerMode === "double" ? 1 : 0;
-      setPage(Math.max(1, index + 1 - offset));
+      setPage(visiblePdfPage(rendition) || Math.max(1, index + 1 - offset));
       setStacked(rendition?.element?.dataset.pdfTranslationLayout === "stacked");
     };
     update();
@@ -102,6 +102,18 @@ export default function TranslationPanel({ book, rendition, onClose }: {
   };
   const task = content?.task;
   const running = task && ["queued", "running"].includes(task.status);
+  const pageFormat = content?.page_formats?.[String(page)];
+  const pageReady = content?.blocks.filter(block => block.page === page)
+    .every(block => block.kind === "image" || block.kind === "code" || !!block.translation);
+  const restoreFormat = async () => {
+    if (!metadata || !chapter) return;
+    setBusy("正在恢复本页格式…"); setError("");
+    try {
+      await translationApi(`/books/${metadata.id}/chapters/${chapter.id}/pages/${page}/format`, { method: "POST" });
+      setContent(await translationApi<ChapterContent>(`/books/${metadata.id}/chapters/${chapter.id}`)); notify();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "恢复格式失败，已有译文仍保留。"); }
+    finally { setBusy(""); }
+  };
   return <aside className="pdf-translation-panel" aria-label="翻译与双语设置" style={{
     backgroundColor: ConfigService.getReaderConfig("backgroundColor") || "#fffef9",
     color: ConfigService.getReaderConfig("textColor") || "#333",
@@ -129,6 +141,12 @@ export default function TranslationPanel({ book, rendition, onClose }: {
         {running && <button disabled={!!busy} onClick={() => taskAction("pause")}>暂停翻译</button>}
         {["paused", "failed", "paused_usage_limit"].includes(task.status) && <button disabled={!!busy} onClick={() => taskAction("resume")}>继续翻译</button>}
       </>}
+      {task && !running && pageFormat && <div className="pdf-translation-format">
+        {pageFormat.status === "ready" ? <p role="status">本页格式已恢复</p> : <>
+          <p className="pdf-translation-hint">复用已有译文，恢复本页加粗、特殊字体与表格。不会重新翻译正文。</p>
+          <button disabled={!!busy || !pageReady} onClick={restoreFormat}>{busy || "恢复本页格式"}</button>
+        </>}
+      </div>}
     </div> : !error && <p role="status">正在读取章节…</p>}
   </aside>;
 }

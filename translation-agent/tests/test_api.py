@@ -82,3 +82,42 @@ def test_import_read_and_control_chapter_without_network(tmp_path, monkeypatch):
         assert client.post(control + "/resume", headers=headers).json()["status"] == "queued"
         assert client.post(control + "/delete", headers=headers).status_code == 404
         assert client.get(path).json()["task"]["total"] == 1
+
+
+def test_format_endpoint_preserves_translations_and_reuses_saved_presentation(
+    tmp_path, monkeypatch
+):
+    async def idle_worker(self):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(api, "state_directory", lambda: state_directory(tmp_path))
+    monkeypatch.setattr(api.ChapterQueue, "_consume", idle_worker)
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((40, 100), "A plain body paragraph for cache verification.")
+        data = pdf.tobytes()
+    headers = {"x-koodo-translation": "1", "origin": "https://koodoreader.localhost"}
+    with TestClient(api.app) as client:
+        book = client.post("/api/translation/books?key=cache", content=data, headers=headers).json()
+        queue = api.app.state.queue
+        document = api.app.state.documents.get(book["id"])
+        chapter_id = book["chapters"][0]["id"]
+        task = queue.create(book["id"], chapter_id, "test-model")
+        segment_id = document["blocks"][0]["id"]
+        job = queue.jobs.start({"fixture": True}, "test-model")
+        translated = {"segments": [{"segment_id": segment_id, "text": "已有中文译文。"}]}
+        queue.jobs.save(job["id"], "completed", {"accepted": translated, "draft": translated})
+        task["chunks"][0]["job_id"], task["status"] = job["id"], "completed"
+        queue.save(task)
+        path = f"/api/translation/books/{book['id']}/chapters/{chapter_id}"
+        before = client.get(path).json()
+        assert client.post(path + "/pages/1/format").status_code == 403
+        restored = client.post(path + "/pages/1/format", headers=headers)
+        assert restored.status_code == 200
+        assert restored.json()["status"] == "ready"
+        count = len(queue.jobs.list_jobs())
+        assert client.post(path + "/pages/1/format", headers=headers).json() == restored.json()
+        assert len(queue.jobs.list_jobs()) == count
+        after = client.get(path).json()
+        assert after["blocks"] == before["blocks"]
+        assert after["task"] == before["task"]
+        assert api.app.state.documents.get(book["id"]) == document

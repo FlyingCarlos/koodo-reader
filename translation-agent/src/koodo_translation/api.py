@@ -103,9 +103,20 @@ async def book(request):
 
 async def chapter(request):
     return JSONResponse(
-        request.app.state.queue.chapter(
+        await run_in_threadpool(
+            request.app.state.queue.chapter,
             request.path_params["book_id"],
             request.path_params["chapter_id"],
+        )
+    )
+
+
+async def format_page(request):
+    return JSONResponse(
+        await request.app.state.queue.format_page(
+            request.path_params["book_id"],
+            request.path_params["chapter_id"],
+            request.path_params["page"],
         )
     )
 
@@ -157,6 +168,11 @@ app = Starlette(
         Route("/api/translation/books", books, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}", book),
         Route("/api/translation/books/{book_id}/chapters/{chapter_id}", chapter),
+        Route(
+            "/api/translation/books/{book_id}/chapters/{chapter_id}/pages/{page:int}/format",
+            format_page,
+            methods=["POST"],
+        ),
         Route(
             "/api/translation/books/{book_id}/chapters/{chapter_id}/translate",
             translate,

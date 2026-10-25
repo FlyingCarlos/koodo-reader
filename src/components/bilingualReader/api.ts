@@ -47,6 +47,20 @@ export type ChapterContent = {
   chapter: Chapter;
   task: ChapterTask | null;
   blocks: ParallelBlock[];
+  page_formats?: Record<string, PageFormat>;
+};
+
+export type TextMark = { start: number; end: number; kind: "bold" | "italic" | "code" | "serif" };
+export type CellFragment = { block_id: string; start: number; end: number };
+export type FormatTable = {
+  id: string; bbox: number[]; columns: number; rows: number;
+  cells: { id: string; row: number; column: number; rowspan: number; colspan: number; header: boolean; block_ids: string[] }[];
+};
+export type PageFormat = {
+  version: number; status: string; body_font_size: number;
+  paragraph_groups: string[][]; tables: FormatTable[];
+  translated_marks: Record<string, TextMark[]>;
+  translated_cells: Record<string, CellFragment[]>;
 };
 
 export class TranslationApiError extends Error {

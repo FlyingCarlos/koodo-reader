@@ -8,7 +8,8 @@ from openai import AsyncOpenAI
 
 from .auth import API, ChatGPTAuth
 from .documents import DocumentStore
-from .storage import exclusive_lock
+from .formatting import align_page, fingerprint, page_presentation, source_formats
+from .storage import exclusive_lock, write_private_json
 from .workflow import TranslationInput, translate_job
 
 GLOSSARY = {
@@ -56,6 +57,7 @@ class ChapterQueue:
         self.active_id: str | None = None
         self.consumer: asyncio.Task | None = None
         self.stopping = False
+        self.operation_lock = asyncio.Lock()
         with self.jobs.connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS chapter_tasks (
                 id TEXT PRIMARY KEY, book_id TEXT NOT NULL, chapter_id TEXT NOT NULL,
@@ -175,15 +177,71 @@ class ChapterQueue:
                         if artifacts.get("accepted")
                         else ("needs_review" if job["status"] == "needs_review" else "draft"),
                     }
+        nodes = [node for node in book["blocks"] if node["chapter_id"] == chapter_id]
+        folder = self.documents.folder(book_id)
+        formats = source_formats(folder, book, sorted({n["page"] for n in nodes}))
+        for page, source in formats.items():
+            texts = {
+                n["id"]: translations[n["id"]]["text"]
+                for n in nodes
+                if n["page"] == int(page) and n["id"] in translations
+            }
+            saved_path = folder / f"page-format-{int(page):04d}.json"
+            saved = json.loads(saved_path.read_text()) if saved_path.exists() else None
+            formats[page] = page_presentation(source, texts, saved)
         return {
             "chapter": chapter,
             "task": self.summary(task),
+            "page_formats": formats,
             "blocks": [
                 {**node, "translation": translations.get(node["id"])}
                 for node in book["blocks"]
                 if node["chapter_id"] == chapter_id
             ],
         }
+
+    async def format_page(self, book_id: str, chapter_id: str, page: int):
+        # Share the production worker's execution slot. Formatting never changes
+        # translation jobs, accepted text, document IDs, or source PDFs.
+        async with self.operation_lock:
+            with exclusive_lock(self.documents.directory / "worker.lock"):
+                content = self.chapter(book_id, chapter_id)
+                source = content["page_formats"].get(str(page))
+                if not source:
+                    raise ValueError("本页不属于当前章节。")
+                if source["status"] == "ready":
+                    return source
+                source = {
+                    k: v
+                    for k, v in source.items()
+                    if k not in {"status", "translated_marks", "translated_cells"}
+                }
+                nodes = [n for n in content["blocks"] if n["page"] == page]
+                texts = {n["id"]: n["translation"]["text"] for n in nodes if n["translation"]}
+                if any(n["kind"] not in {"image", "code"} and n["id"] not in texts for n in nodes):
+                    raise ValueError("请先完成本页翻译，再恢复格式；已有译文会直接复用。")
+                model = content["task"]["model"] if content["task"] else None
+                if not model:
+                    raise ValueError("请先翻译本页。")
+                saved_path = self.documents.folder(book_id) / f"page-format-{page:04d}.json"
+                saved = json.loads(saved_path.read_text()) if saved_path.exists() else {}
+                digest = fingerprint(source, texts)
+                resume = saved.get("job_id") if saved.get("fingerprint") == digest else None
+                job = self.jobs.start(
+                    {"format_version": 1, "source": source, "texts": texts}, model, resume
+                )
+                write_private_json(saved_path, {"fingerprint": digest, "job_id": job["id"]})
+                if source["marks"] or source["tables"]:
+                    async with AsyncOpenAI(
+                        api_key=self.auth.access_token, base_url=API, max_retries=0
+                    ) as client:
+                        output = await align_page(source, texts, model, client, self.jobs, job)
+                else:
+                    output = {"marks": {}, "cells": {}}
+                    self.jobs.save(job["id"], "completed", {"format": output, "usage": []})
+                saved = {**output, "fingerprint": digest, "job_id": job["id"]}
+                write_private_json(saved_path, saved)
+                return page_presentation(source, texts, saved)
 
     def pause(self, task_id: str):
         task = self.get(task_id)
@@ -239,6 +297,10 @@ class ChapterQueue:
                 self.active, self.active_id = None, None
 
     async def _run_task(self, task_id: str):
+        async with self.operation_lock:
+            await self._run_translation_task(task_id)
+
+    async def _run_translation_task(self, task_id: str):
         task = self.get(task_id)
         try:
             with exclusive_lock(self.documents.directory / "worker.lock"):

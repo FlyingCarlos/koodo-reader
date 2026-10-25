@@ -68,7 +68,7 @@ export function sourceBlockMetrics(block: ParallelBlock, runs: SourceRun[], scal
     if (!query) continue;
     let at = joined.indexOf(query);
     while (at >= 0) {
-      const end = at + needle.length;
+      const end = at + query.length;
       matches.push(indexed.filter((item) => item.end > at && item.start < end).map((item) => item.run));
       at = joined.indexOf(query, at + 1);
     }

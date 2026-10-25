@@ -36,3 +36,10 @@ test("PDF device-pixel transforms are removed when measuring effective type", ()
   document.querySelector<HTMLElement>("span")!.getBoundingClientRect = () => ({ top: 100, bottom: 118, left: 30, right: 130, width: 100, height: 18 } as DOMRect);
   expect(sourceTextRuns(document, layer)[0].fontSize).toBe(18);
 });
+
+test("prefix fallback does not consume unrelated runs when the rest of a source block differs", () => {
+  const prefix="a".repeat(48);
+  const metrics=sourceBlockMetrics(block(prefix+"x".repeat(100),[50,100,350,120]),
+    [run(prefix,100,18),run("z".repeat(100),150,36)],1,{top:0,left:0},18);
+  expect(metrics.fontSize).toBe(18);expect(metrics.bottom).toBe(118);
+});

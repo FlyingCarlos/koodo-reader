@@ -1,5 +1,5 @@
 import { jest, expect, beforeEach, afterEach, test } from "@jest/globals";
-import { attachPdfTranslation, captureTranslationRange, clearTranslationMarks, paintTranslationNote, preservePdfViewport } from "./pdfTranslation";
+import { attachPdfTranslation, captureTranslationRange, clearTranslationMarks, paintTranslationNote, preservePdfViewport, visiblePdfPage } from "./pdfTranslation";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 
 jest.mock("../../assets/lib/kookit-extra-browser.min", () => ({ ConfigService: { getReaderConfig: require("@jest/globals").jest.fn(() => "no") } }));
@@ -42,6 +42,17 @@ test.each([[165, "stacked", 2], [816, "columns", 1]])(
   }
 );
 afterEach(() => { document.getSelection()?.removeAllRanges(); jest.clearAllMocks(); });
+
+test("format controls target the page occupying the visible viewport even before native progress settles", () => {
+  const element=document.createElement("div");element.scrollTop=950;
+  Object.defineProperty(element,"clientHeight",{value:800});
+  const first=document.createElement("div"),second=document.createElement("div");
+  first.className=second.className="pdf-container";first.id="pdf-container-26";second.id="pdf-container-27";
+  Object.defineProperty(first,"offsetTop",{value:0});Object.defineProperty(first,"offsetHeight",{value:1000});
+  Object.defineProperty(second,"offsetTop",{value:1000});Object.defineProperty(second,"offsetHeight",{value:1400});
+  document.body.replaceChildren(first,second);
+  expect(visiblePdfPage({readerMode:"scroll",element,getDocument:()=>document})).toBe(28);
+});
 
 test("asynchronous translation height above the viewport preserves the visible native page and offset", () => {
   const scroller = document.createElement("div");
