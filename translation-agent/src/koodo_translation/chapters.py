@@ -7,9 +7,11 @@ import uuid
 from openai import AsyncOpenAI
 
 from .auth import API, ChatGPTAuth
+from .batching import SOURCE_MODE, batches, replan_unstarted, segment_payload
 from .documents import DocumentStore
 from .formatting import align_page, fingerprint, page_presentation, source_formats
 from .storage import exclusive_lock, write_private_json
+from .toc import toc_block_ids
 from .workflow import TranslationInput, translate_job
 
 GLOSSARY = {
@@ -32,20 +34,6 @@ GLOSSARY = {
     "prefill": "预填充",
     "decode": "解码",
 }
-TRANSLATABLE = {"paragraph", "heading", "list", "caption"}
-
-
-def batches(blocks: list[dict]) -> list[list[str]]:
-    result, current, characters = [], [], 0
-    for block in blocks:
-        if block["kind"] not in TRANSLATABLE:
-            continue
-        if current and (len(current) >= 12 or characters + len(block["text"]) > 6000):
-            result.append(current)
-            current, characters = [], 0
-        current.append(block["id"])
-        characters += len(block["text"])
-    return result + ([current] if current else [])
 
 
 class ChapterQueue:
@@ -122,7 +110,12 @@ class ChapterQueue:
                     chapter_id,
                     model,
                     "queued",
-                    json.dumps([{"ids": group, "job_id": None} for group in groups]),
+                    json.dumps(
+                        [
+                            {"ids": group, "job_id": None, "source_mode": SOURCE_MODE}
+                            for group in groups
+                        ]
+                    ),
                     json.dumps(GLOSSARY, ensure_ascii=False),
                 ),
             )
@@ -131,7 +124,7 @@ class ChapterQueue:
     def summary(self, task: dict | None) -> dict | None:
         if task is None:
             return None
-        finished, drafted, total, review_count = 0, 0, 0, 0
+        finished, drafted, total, review_count, completed_batches = 0, 0, 0, 0, 0
         for chunk in task["chunks"]:
             total += len(chunk["ids"])
             if chunk["job_id"]:
@@ -141,6 +134,7 @@ class ChapterQueue:
                     drafted += len(chunk["ids"])
                 if job["status"] == "completed":
                     finished += len(chunk["ids"])
+                    completed_batches += 1
                 if job["status"] == "needs_review":
                     review_count += len(chunk["ids"])
         return {
@@ -152,6 +146,8 @@ class ChapterQueue:
             "drafted": drafted,
             "needs_review": review_count,
             "error_code": task.get("error_code"),
+            "batch_count": len(task["chunks"]),
+            "completed_batches": completed_batches,
         }
 
     def chapter(self, book_id: str, chapter_id: str) -> dict:
@@ -214,7 +210,7 @@ class ChapterQueue:
                 source = {
                     k: v
                     for k, v in source.items()
-                    if k not in {"status", "translated_marks", "translated_cells"}
+                    if k not in {"status", "translated_marks", "translated_cells", "toc_entries"}
                 }
                 nodes = [n for n in content["blocks"] if n["page"] == page]
                 texts = {n["id"]: n["translation"]["text"] for n in nodes if n["translation"]}
@@ -309,6 +305,11 @@ class ChapterQueue:
                 book = self.documents.get(task["book_id"])
                 chapter = next(c for c in book["chapters"] if c["id"] == task["chapter_id"])
                 nodes = {node["id"]: node for node in book["blocks"]}
+                contents = toc_block_ids(book["blocks"])
+                planned = replan_unstarted(task["chunks"], nodes)
+                if planned != task["chunks"]:
+                    task["chunks"] = planned
+                    self.save(task)
                 async with AsyncOpenAI(
                     api_key=self.auth.access_token, base_url=API, max_retries=0
                 ) as client:
@@ -319,11 +320,11 @@ class ChapterQueue:
                                 "chapter_title": chapter["title"],
                                 "glossary": task["glossary"],
                                 "segments": [
-                                    {
-                                        "id": block_id,
-                                        "text": nodes[block_id]["text"],
-                                        "protected": nodes[block_id]["protected"],
-                                    }
+                                    segment_payload(
+                                        nodes[block_id],
+                                        chunk.get("source_mode"),
+                                        is_toc=block_id in contents,
+                                    )
                                     for block_id in chunk["ids"]
                                 ],
                             }

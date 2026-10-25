@@ -31,6 +31,8 @@ export type ChapterTask = {
   drafted: number;
   needs_review: number;
   error_code: string | null;
+  batch_count?: number;
+  completed_batches?: number;
 };
 
 export type ParallelBlock = {
@@ -61,7 +63,9 @@ export type PageFormat = {
   paragraph_groups: string[][]; tables: FormatTable[];
   translated_marks: Record<string, TextMark[]>;
   translated_cells: Record<string, CellFragment[]>;
+  toc_entries?: TocEntry[];
 };
+export type TocEntry = {block_id: string; title: string; page_label: string; indent: number; bold: boolean; page_bold?: boolean};
 
 export class TranslationApiError extends Error {
   constructor(public status: number, message: string) {

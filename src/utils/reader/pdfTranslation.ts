@@ -3,7 +3,7 @@ import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { ChapterContent, PageFormat, ParallelBlock, TranslationBook, translationApi } from "../../components/bilingualReader/api";
 
 import { sourceBlockMetrics, sourceTextRuns } from "./pdfComparisonLayout";
-import { renderTranslationSlice, renderTranslationTable, translationFragments } from "./pdfRichText";
+import { renderTranslationSlice, renderTranslationTable, renderTranslationToc, translationFragments } from "./pdfRichText";
 
 export const PDF_TRANSLATION_CHANGE = "koodo-pdf-translation-change";
 export const PDF_TRANSLATION_UPDATE = "koodo-pdf-translation-update";
@@ -209,7 +209,12 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       if (node) for (const id of table.cells.flatMap(c => c.block_ids)) tableByBlock.set(id, {table, node});
     }
     const byId = new Map(blocks.map(b => [b.id, b]));
-    const groups = new Map((format?.paragraph_groups || []).map(ids => [ids[0], ids]));
+    const contents = new Map((format?.toc_entries || []).map(entry => [entry.block_id, entry]));
+    const groups = new Map((format?.paragraph_groups || []).flatMap(ids => {
+      // A cached prose group may predate TOC detection. Never join its entries.
+      if (ids.some(id => contents.has(id))) return [];
+      return [[ids[0], ids] as [string, string[]]];
+    }));
     const consumed = new Set<string>();
     const items: {blocks: ParallelBlock[]; table?: NonNullable<PageFormat["tables"]>[number]; node?: HTMLElement}[] = [];
     for (const block of blocks) {
@@ -232,12 +237,21 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       const size = block.kind === "heading" ? Math.max(bodySize * 1.22, metric.fontSize * .94)
         : block.kind === "caption" ? Math.max(12, bodySize * .83) : bodySize;
       section.style.fontSize = `${size}px`; section.style.lineHeight = "1.5";
+      const toc = contents.get(block.id);
+      const indent = toc ? Math.min(toc.indent * sourceScale, width * .2) : 0;
       if (stacked) { section.style.position = "relative"; section.style.marginTop = "18px"; }
       else {
         section.style.position = "absolute"; section.style.left = `${gutter}px`;
         section.style.width = `${item.table || block.kind === "image" ? width : Math.min(width, bodySize * 36)}px`;
       }
-      if (item.node) section.appendChild(item.node);
+      const tocNode = toc && renderTranslationToc(doc, block, toc, format?.translated_marks[block.id]);
+      if (tocNode) {
+        section.dataset.tocEntry = block.id;
+        if (stacked) { section.style.marginLeft = `${indent}px`; section.style.marginTop = "8px"; }
+        else { section.style.left = `${gutter + indent}px`; section.style.width = `${Math.min(width, bodySize * 36) - indent}px`; }
+        section.appendChild(tocNode);
+      }
+      else if (item.node) section.appendChild(item.node);
       else if (block.kind === "image") {
         const bbox = block.anchors[0].bbox, image = doc.createElement("img");
         image.src = `/api/translation/books/${metadata!.id}/blocks/${block.id}/image`;
@@ -271,7 +285,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       article.appendChild(section);
       if (stacked) return;
       const sourceTop = block.kind === "image" || item.table ? metric.top : metric.top - size * .25;
-      const top = Math.max(sourceTop, previousBottom + (index ? 6 : 0));
+      const top = Math.max(sourceTop, previousBottom + (index ? (tocNode ? 2 : 6) : 0));
       section.style.top = `${top}px`; section.dataset.sourceTextTop = String(sourceTop);
       section.dataset.alignment = top - sourceTop < 1 ? "aligned" : "expanded";
       previousBottom = top + section.offsetHeight;
@@ -301,6 +315,11 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         .koodo-local-translation .translation-table{border-collapse:collapse;width:100%;table-layout:fixed;font:inherit;}
         .koodo-local-translation .translation-table th,.koodo-local-translation .translation-table td{border:1px solid ${dark ? "#a0a792" : "#827c69"};padding:.4em .55em;vertical-align:top;text-align:left;font-size:inherit;line-height:1.5;}
         .koodo-local-translation .translation-table th{font-weight:700;}
+        .koodo-local-translation .translation-toc-row{display:flex;align-items:flex-end;gap:.3em;line-height:1.5;}
+        .koodo-local-translation .translation-toc-title{flex:0 1 auto;min-width:0;overflow-wrap:anywhere;}
+        .koodo-local-translation .translation-toc-leader{flex:1 0 12px;min-width:12px;font-size:0;line-height:0;border-bottom:1px dotted currentColor;margin-bottom:6px;}
+        .koodo-local-translation .translation-toc-leader *{font-size:0;line-height:0;}
+        .koodo-local-translation .translation-toc-page{flex:0 0 3ch;min-width:3ch;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
         .koodo-local-translation small,.koodo-local-translation .translation-pending{font-size:12px;opacity:.75;}
         .koodo-local-translation header{font-size:12px;line-height:1.6;user-select:none;${stacked ? "" : "position:absolute;top:8px;left:24px;"}}
         .koodo-local-translation ::selection{background:#c9ddbe;color:#172514;}

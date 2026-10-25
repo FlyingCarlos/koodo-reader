@@ -1,4 +1,4 @@
-import { FormatTable, PageFormat, ParallelBlock, TextMark } from "../../components/bilingualReader/api";
+import { FormatTable, PageFormat, ParallelBlock, TextMark, TocEntry } from "../../components/bilingualReader/api";
 
 // UTF-16 offsets and exact text stay authoritative, including old plain-text notes.
 // No model-provided HTML, whitespace, bullet or Markdown is inserted into a block.
@@ -28,6 +28,29 @@ export function translationFragments(doc: Document, blockId: string): HTMLElemen
   return Array.from(doc.querySelectorAll<HTMLElement>("[data-translation-block]"))
     .filter(el => el.dataset.translationBlock === blockId)
     .sort((a,b) => Number(a.dataset.translationStart || 0) - Number(b.dataset.translationStart || 0));
+}
+
+export function renderTranslationToc(doc: Document, block: ParallelBlock, entry: TocEntry,
+  marks: TextMark[] = []): HTMLElement | null {
+  const text = block.translation?.text;
+  if (!text) return null;
+  // Old translations contain literal leader dots; new compact batches keep a
+  // protected tab/page suffix. Retain all text and UTF-16 offsets in either form.
+  const suffix = /([.．·…‥\s]+)(\d+|[ivxlcdmIVXLCDM]+)\s*$/.exec(text);
+  if (!suffix || suffix[2] !== entry.page_label || !text.slice(0, suffix.index).trim()) return null;
+  const pageStart = suffix.index + suffix[1].length;
+  const row = doc.createElement("div"); row.className = "translation-toc-row";
+  row.setAttribute("role", "listitem");
+  if (entry.bold) row.style.fontWeight = "700";
+  const title = renderTranslationSlice(doc, block, marks, 0, suffix.index);
+  title.className = "translation-toc-title";
+  const leader = renderTranslationSlice(doc, block, marks, suffix.index, pageStart);
+  leader.className = "translation-toc-leader"; leader.setAttribute("aria-hidden", "true");
+  const page = renderTranslationSlice(doc, block, marks, pageStart, text.length);
+  page.className = "translation-toc-page";
+  if (entry.page_bold) page.style.fontWeight = "700";
+  row.append(title, leader, page);
+  return row;
 }
 
 export function renderTranslationTable(doc: Document, table: FormatTable, format: PageFormat,

@@ -1,6 +1,6 @@
 import { jest, test, expect, afterEach } from "@jest/globals";
 import { ParallelBlock, PageFormat, FormatTable } from "../../components/bilingualReader/api";
-import { renderTranslationSlice, renderTranslationTable } from "./pdfRichText";
+import { renderTranslationSlice, renderTranslationTable, renderTranslationToc, translationFragments } from "./pdfRichText";
 import { captureTranslationRange, paintTranslationNote, clearTranslationMarks } from "./pdfTranslation";
 
 jest.mock("../../assets/lib/kookit-extra-browser.min", () => ({ ConfigService: { getReaderConfig: require("@jest/globals").jest.fn(() => "no") } }));
@@ -61,3 +61,25 @@ test("invalid or incomplete table fragments fall back instead of hiding existing
   const overlap=format();overlap.translated_cells.b=[{block_id:"header",start:0,end:5}];
   expect(renderTranslationTable(document,table,overlap,blocks)).toBeNull();
 });
+
+test.each(['😀章节与一个很长的标题' + '.'.repeat(80) + '9','😀章节与一个很长的标题\t9'])(
+  "contents separates title/leader/page while preserving exact legacy note offsets: %s", text => {
+    const source=block("toc",text), entry={block_id:"toc",title:"Chapter",page_label:"9",indent:24,bold:true};
+    const row=renderTranslationToc(document,source,entry)!;
+    const article=document.createElement("article");article.className="koodo-local-translation";
+    article.appendChild(row);document.body.appendChild(article);
+    expect(row.textContent).toBe(text);
+    expect(row.querySelector('.translation-toc-title')!.textContent).toBe('😀章节与一个很长的标题');
+    expect(row.querySelector('.translation-toc-page')!.textContent).toBe('9');
+    const note={key:"old-toc",color:"background-#FEF3CD",range:JSON.stringify({kind:"koodo-pdf-translation-v1",
+      bookId:"book",page:4,parts:[{blockId:"toc",start:0,end:text.length,quote:text}]})};
+    paintTranslationNote(document,note,"book",jest.fn());
+    expect(Array.from(row.querySelectorAll('.koodo-translation-note')).map(n=>n.textContent).join('')).toBe(text);
+    clearTranslationMarks(document);
+    const page=row.querySelector('.translation-toc-page')!, range=document.createRange();range.selectNodeContents(page);
+    document.getSelection()!.addRange(range);
+    expect(captureTranslationRange(document,4,"book")!.parts).toEqual([{blockId:"toc",start:text.length-1,end:text.length,quote:"9"}]);
+    expect(translationFragments(document,"toc").map(n=>n.textContent).join('')).toBe(text);
+    expect(renderTranslationToc(document,source,{...entry,page_label:"11"})).toBeNull();
+  }
+);

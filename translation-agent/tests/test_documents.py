@@ -102,7 +102,7 @@ def test_chapter_batching_and_idempotent_queue(pdf_bytes, tmp_path):
     with pytest.raises(ValueError, match="模型"):
         queue.create(book["id"], chapter["id"], "other-model")
     grouped = batches([n for n in book["blocks"] if n["chapter_id"] == chapter["id"]])
-    assert all(len(group) <= 12 for group in grouped)
+    assert all(len(group) <= 96 for group in grouped)
     code_ids = {node["id"] for node in book["blocks"] if node["kind"] == "code"}
     assert code_ids.isdisjoint(block_id for group in grouped for block_id in group)
     assert queue.pause(task["id"])["status"] == "paused"

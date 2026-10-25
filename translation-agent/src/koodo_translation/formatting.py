@@ -13,6 +13,7 @@ from agents import Agent, ModelSettings, OpenAIResponsesModel, RunConfig
 from pydantic import BaseModel, Field
 
 from .storage import write_private_json
+from .toc import toc_entries
 from .workflow import run_stage
 
 FORMAT_VERSION = 1
@@ -164,7 +165,16 @@ def source_formats(folder: Path, book: dict, pages: list[int]):
                     pdf[number - 1], [b for b in book["blocks"] if b["page"] == number]
                 )
         write_private_json(path, cached)
-    return {str(p): cached[str(p)] for p in pages}
+    result = {str(p): cached[str(p)] for p in pages}
+    # Derive this cheap additive metadata even for old cached pages. Old prose
+    # grouping must not keep merging contents rows after an upgrade.
+    for number in pages:
+        entries = toc_entries(
+            [b for b in book["blocks"] if b["page"] == number], result[str(number)]["marks"]
+        )
+        if entries:
+            result[str(number)] = {**result[str(number)], "toc_entries": entries}
+    return result
 
 
 class MarkQuote(BaseModel):
@@ -261,6 +271,9 @@ def validate_alignment(source, texts, alignment):
 
 
 def fingerprint(source, texts):
+    # TOC layout is deterministic presentation, not part of Agent style/cell
+    # alignment. Adding it must not invalidate existing bold/table mappings.
+    source = {k: v for k, v in source.items() if k != "toc_entries"}
     return hashlib.sha256(
         json.dumps({"source": source, "texts": texts}, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
