@@ -1,0 +1,35 @@
+[project]
+name = "koodo-translation-agent"
+version = "0.1.0"
+description = "Local Python translation agents for Koodo Reader"
+requires-python = ">=3.12"
+dependencies = [
+  "openai-agents==0.24.0",
+  "httpx>=0.28,<1",
+  "httpx2>=2.16,<3",
+  "PyJWT[crypto]>=2.10,<3",
+]
+
+[project.scripts]
+koodo-translate = "koodo_translation.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "ruff>=0.11"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/koodo_translation"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]

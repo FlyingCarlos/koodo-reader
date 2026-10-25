@@ -21,6 +21,12 @@ dist/
 
 # misc
 /logs/
+/translation-agent/.venv/
+/translation-agent/.pytest_cache/
+/translation-agent/.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
 .DS_Store
 .env.local
 .env.development.local

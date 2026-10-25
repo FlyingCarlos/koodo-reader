@@ -1,0 +1,21 @@
+{
+  "book_title": "Translation Agent Verification",
+  "chapter_title": "Latency and throughput",
+  "glossary": {
+    "latency": "延迟",
+    "throughput": "吞吐量",
+    "batch size": "批大小"
+  },
+  "segments": [
+    {
+      "id": "sample-p1",
+      "text": "Latency is the time one request takes to finish. Throughput is the number of requests completed per second. Higher throughput does not necessarily mean lower latency.",
+      "protected": []
+    },
+    {
+      "id": "sample-p2",
+      "text": "The configuration batch_size = 8 sets the batch size. Increasing the batch size may improve throughput, but it can also increase latency. Do not change the configuration until both measurements have been checked.",
+      "protected": ["batch_size = 8"]
+    }
+  ]
+}

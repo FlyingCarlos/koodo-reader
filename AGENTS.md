@@ -6,6 +6,8 @@ The production server is `scripts/local-server.cjs`, serving only `build/` on lo
 
 This project runs as the macOS user LaunchAgent `com.carlosz.koodoreader`.
 
+The Python translation proof of concept lives in `translation-agent/`; its runtime is OpenAI Agents SDK. Use `uv sync --locked --python 3.12`, `uv run ruff check src tests`, `uv run ruff format --check src tests`, and `uv run pytest -q` in that directory. See `translation-agent/README.md` for subscription authorization and stage-level resume. Credentials and job state must stay outside the repository and `build/`. Never reuse Codex's credentials or silently fall back from subscription usage to an API key. This CLI is not yet wired into the deployed web reader.
+
 After any runtime-affecting code or configuration change:
 
 1. Run `node --check scripts/local-server.cjs && yarn build` and complete the production build.
