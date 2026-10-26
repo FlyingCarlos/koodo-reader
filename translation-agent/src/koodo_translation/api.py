@@ -125,6 +125,30 @@ async def format_page(request):
     )
 
 
+async def layout(request):
+    queue = request.app.state.queue
+    book_id = request.path_params["book_id"]
+    book = queue.documents.get(book_id)
+    if request.method == "GET":
+        page = int(request.query_params.get("page", "0"))
+        if not 1 <= page <= book["page_count"]:
+            raise ValueError("页码超出原书范围。")
+        return JSONResponse(queue.layout.public(queue.layout.latest(book_id, page)))
+    data = await request.json()
+    page = data.get("page")
+    if not isinstance(page, int) or isinstance(page, bool) or not 1 <= page <= book["page_count"]:
+        raise ValueError("请选择原书中的有效页码。")
+    chapter = next(c for c in book["chapters"] if c["start_page"] <= page <= c["end_page"])
+    task = queue.for_chapter(book_id, chapter["id"])
+    model = task["model"] if task else data.get("model")
+    if model not in {m["slug"] for m in await queue.auth.models()}:
+        raise ValueError("请选择当前订阅支持的模型。")
+    result = await run_in_threadpool(
+        queue.layout.create, book_id, page, model, data.get("automatic") is True
+    )
+    return JSONResponse(result, status_code=202)
+
+
 async def translate(request):
     data = await request.json()
     model = data.get("model")
@@ -210,6 +234,7 @@ app = Starlette(
         Route("/api/translation/books", books, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}", book),
         Route("/api/translation/books/{book_id}/whole", whole_book, methods=["GET", "POST"]),
+        Route("/api/translation/books/{book_id}/layout", layout, methods=["GET", "POST"]),
         Route("/api/translation/books/{book_id}/tables/repair", repair_tables, methods=["POST"]),
         Route("/api/translation/books/{book_id}/whole/{action}", whole_control, methods=["POST"]),
         Route("/api/translation/books/{book_id}/export", export_book, methods=["POST"]),

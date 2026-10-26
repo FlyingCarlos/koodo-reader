@@ -41,10 +41,12 @@ class PublicationStore:
             folder / "document.json",
             folder / "source-format-v1.json",
             folder / "source-structure-v1.json",
+            folder / "source-math-v1.json",
+            folder / "layout-overrides-v1.json",
         ]
         files += sorted(folder.glob("page-format-*.json"))
         stamps = [(p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.exists()]
-        value = [4, (row["id"], row["revision"]) if row else None, jobs, stamps]
+        value = [5, (row["id"], row["revision"]) if row else None, jobs, stamps]
         return hashlib.sha256(json.dumps(value).encode()).hexdigest()
 
     def chapter(self, book_id, chapter_id, build):
@@ -132,6 +134,8 @@ class PublicationStore:
                 for path in [
                     folder / "source-format-v1.json",
                     folder / "source-structure-v1.json",
+                    folder / "source-math-v1.json",
+                    folder / "layout-overrides-v1.json",
                     *folder.glob("page-format-*.json"),
                 ]:
                     if path.exists():

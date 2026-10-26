@@ -170,3 +170,50 @@ def test_whole_book_api_is_idempotent_and_exports_original_pdf(tmp_path, monkeyp
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             assert archive.read("source.pdf") == data
             assert json.loads(archive.read("manifest.json"))["status"] == "partial"
+
+
+def test_layout_api_checks_access_page_model_and_deduplicates_active_jobs(tmp_path, monkeypatch):
+    async def idle(self):
+        await asyncio.Event().wait()
+
+    async def models(self):
+        return [{"slug": "test-model", "display_name": "Test"}]
+
+    monkeypatch.setattr(api, "state_directory", lambda: state_directory(tmp_path))
+    monkeypatch.setattr(api.ChapterQueue, "_consume", idle)
+    monkeypatch.setattr("koodo_translation.auth.ChatGPTAuth.models", models)
+    headers = {"x-koodo-translation": "1"}
+    with pymupdf.open() as pdf:
+        for i in range(3):
+            pdf.new_page().insert_text((40, 100), f"A source page {i + 1}.")
+        data = pdf.tobytes()
+    with TestClient(api.app) as client:
+        book = client.post(
+            "/api/translation/books?key=layout", content=data, headers=headers
+        ).json()
+        root = f"/api/translation/books/{book['id']}/layout"
+        assert client.post(root, json={"page": 2, "model": "test-model"}).status_code == 403
+        assert (
+            client.post(root, json={"page": 9, "model": "test-model"}, headers=headers).status_code
+            == 400
+        )
+        assert (
+            client.post(root, json={"page": 2, "model": "invalid"}, headers=headers).status_code
+            == 400
+        )
+        assert (
+            client.post(
+                root, json={"page": 2, "model": "test-model", "automatic": True}, headers=headers
+            ).json()
+            is None
+        )
+        created = client.post(root, json={"page": 2, "model": "test-model"}, headers=headers)
+        assert created.status_code == 202
+        task = created.json()
+        assert task["start_page"] == 1 and task["end_page"] == 3
+        assert (
+            client.post(root, json={"page": 2, "model": "test-model"}, headers=headers).json()["id"]
+            == task["id"]
+        )
+        assert client.get(root + "?page=2").json()["id"] == task["id"]
+        assert client.get(root + "?page=0").status_code == 400

@@ -68,7 +68,14 @@ export type PageFormat = {
   source_layout?: SourceLayout;
   inline_sources?: SourceInline[];
   inline_positions?: Record<string, number>;
+  literal_groups?: LiteralGroup[];
+  layout_uncertain?: boolean;
 };
+export type SourceLine={id:string;page:number;bbox:number[];text:string;block_id:string|null;
+  spans:{text:string;font:string;size:number;flags:number;bbox:number[]}[]};
+export type LiteralGroup={id:string;kind:'formula'|'code'|'paragraph';bbox:number[];
+  start_page:number;end_page:number;lines:SourceLine[]};
+export type LayoutTask={id:number;status:string;anchor_page:number;start_page:number;end_page:number;message:string};
 export type SourceInline = {id:string; block_id:string; owner_id:string; text:string; bbox:number[]};
 export type SourceCode = {id:string; bbox:number[]; parts:{block_id:string|null; prefix:string; text:string}[]};
 export type SourceLayout = {code:SourceCode[]; code_ids:string[]; inlines:SourceInline[];

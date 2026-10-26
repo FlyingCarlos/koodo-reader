@@ -19,6 +19,8 @@
 .pdf-translation-import label { display: block; margin-top: 14px; }
 .pdf-translation-import input { width: 100%; font: inherit; font-size: 12px; margin-top: 6px; }
 .whole-book-entry { margin-bottom: 14px; }
+.pdf-layout-controls { margin-top: 18px; padding-top: 16px; border-top: 1px solid #d8d8d0; }
+.pdf-layout-controls [role=status], .pdf-layout-controls [role=alert] { overflow-wrap: anywhere; }
 .whole-book-dialog {
   box-sizing: border-box; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
   overflow: auto; padding: 24px; border: 0; border-radius: 5px;

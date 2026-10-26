@@ -310,7 +310,28 @@ class DocumentStore:
             raise KeyError("尚未提取这本书，请先导入 PDF。") from error
         if book_id not in self.structures:
             self.structures[book_id] = load_structure(self.folder(book_id), book)
-        return prepare_book(book, self.structures[book_id])
+        from .layout_sources import local_layout, overrides
+
+        view = prepare_book(book, self.structures[book_id])
+        math = local_layout(self.folder(book_id), book, range(1, book["page_count"] + 1))
+        groups = [g for page in math.values() for g in page["groups"]]
+        groups += overrides(self.folder(book_id))["groups"]
+        literals = {
+            line["block_id"]
+            for g in groups
+            if g["kind"] in {"formula", "code"}
+            for line in g["lines"]
+            if line["block_id"]
+        }
+        for node in view["blocks"]:
+            if node["id"] in literals:
+                node["kind"] = "code"
+        for chapter in view["chapters"]:
+            chapter["text_count"] = sum(
+                n["chapter_id"] == chapter["id"] and n["kind"] not in {"code", "image"}
+                for n in view["blocks"]
+            )
+        return view
 
     def find(self, key: str) -> dict:
         with self.jobs.connect() as db:

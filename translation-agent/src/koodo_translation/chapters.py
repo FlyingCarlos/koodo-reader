@@ -11,6 +11,7 @@ from .batching import SOURCE_MODE, batches, replan_unstarted, segment_payload
 from .books import BookQueue
 from .documents import DocumentStore
 from .formatting import align_page, fingerprint, page_presentation, source_formats
+from .layout import LayoutQueue
 from .publication import PublicationStore
 from .storage import exclusive_lock, write_private_json
 from .toc import toc_block_ids
@@ -63,6 +64,7 @@ class ChapterQueue:
                 )
         self.publication = PublicationStore(self)
         self.books = BookQueue(self)
+        self.layout = LayoutQueue(self)
 
     def get(self, task_id: str) -> dict:
         with self.jobs.connect() as db:
@@ -208,6 +210,31 @@ class ChapterQueue:
         nodes = [node for node in book["blocks"] if node["chapter_id"] == chapter_id]
         folder = self.documents.folder(book_id)
         formats = source_formats(folder, book, sorted({n["page"] for n in nodes}))
+        related = {
+            line["block_id"]
+            for page in formats.values()
+            for g in page.get("literal_groups", [])
+            for line in g["lines"]
+        }
+        extra = [n for n in book["blocks"] if n["id"] in related and n["chapter_id"] != chapter_id]
+        for other_id in {n["chapter_id"] for n in extra}:
+            other = self.for_chapter(book_id, other_id)
+            for chunk in other["chunks"] if other else []:
+                if not chunk["job_id"]:
+                    continue
+                job = self.jobs.get(chunk["job_id"])
+                output = (
+                    job["artifacts"].get("accepted")
+                    or job["artifacts"].get("revision")
+                    or job["artifacts"].get("draft")
+                    or {}
+                )
+                for segment in output.get("segments", []):
+                    if segment["segment_id"] in related:
+                        translations[segment["segment_id"]] = {
+                            "text": segment["text"],
+                            "status": "accepted" if job["artifacts"].get("accepted") else "draft",
+                        }
         for page, source in formats.items():
             texts = {
                 n["id"]: translations[n["id"]]["text"]
@@ -224,9 +251,7 @@ class ChapterQueue:
             "task": self.summary(task),
             "page_formats": formats,
             "blocks": [
-                {**node, "translation": translations.get(node["id"])}
-                for node in book["blocks"]
-                if node["chapter_id"] == chapter_id
+                {**node, "translation": translations.get(node["id"])} for node in nodes + extra
             ],
         }
 
@@ -244,7 +269,11 @@ class ChapterQueue:
             raise ValueError("本页不属于当前章节。")
         if source["status"] == "ready":
             return source
-        layout = source.get("source_layout")
+        presentation = {
+            key: source[key]
+            for key in ("source_layout", "literal_groups", "layout_uncertain")
+            if key in source
+        }
         source = {
             k: v
             for k, v in source.items()
@@ -256,6 +285,8 @@ class ChapterQueue:
                 "toc_entries",
                 "table_state",
                 "source_layout",
+                "literal_groups",
+                "layout_uncertain",
                 "inline_positions",
             }
         }
@@ -289,8 +320,7 @@ class ChapterQueue:
         saved = {**output, "fingerprint": digest, "job_id": job["id"]}
         write_private_json(saved_path, saved)
         result = page_presentation(source, texts, saved)
-        if layout is not None:
-            result["source_layout"] = layout
+        result.update(presentation)
         return result
 
     def table_progress(self, book_id: str, chapter_id: str | None = None):
@@ -365,6 +395,15 @@ class ChapterQueue:
 
     async def _consume(self):
         while not self.stopping:
+            layout_id = self.layout.pending()
+            if layout_id is not None:
+                self.active_id = None
+                self.active = asyncio.create_task(self.layout.run(layout_id))
+                try:
+                    await self.active
+                finally:
+                    self.active = None
+                continue
             self.books.advance()
             with self.jobs.connect() as db:
                 row = db.execute(
@@ -400,6 +439,25 @@ class ChapterQueue:
                 self.save(task)
                 book = self.documents.get(task["book_id"])
                 chapter = next(c for c in book["chapters"] if c["id"] == task["chapter_id"])
+                # Resolve ambiguous structure before submitting new translation
+                # batches. Visual jobs use this same consumer and worker lock.
+                from .layout_sources import local_layout
+
+                audit = local_layout(
+                    self.documents.folder(book["id"]),
+                    book,
+                    range(chapter["start_page"], chapter["end_page"] + 1),
+                )
+                for page, result in audit.items():
+                    if not result["uncertain"]:
+                        continue
+                    recognition = self.layout.create(book["id"], int(page), task["model"], True)
+                    if recognition and recognition["status"] != "completed":
+                        pending = recognition["status"] in {"queued", "running"}
+                        task["status"] = "queued" if pending else "failed"
+                        task["error_code"] = None if pending else "layout_requires_confirmation"
+                        self.save(task)
+                        return
                 nodes = {node["id"]: node for node in book["blocks"]}
                 contents = toc_block_ids(book["blocks"])
                 changed = False

@@ -7,6 +7,7 @@ import { ChapterContent, PageFormat, ParallelBlock, TranslationBook, translation
 import { sourceBlockMetrics, sourceTextRuns } from "./pdfComparisonLayout";
 import { renderTranslationSlice, renderTranslationTable, renderTranslationToc, translationFragments } from "./pdfRichText";
 import { renderSourceCode, renderSourceParagraph, sourceLiteralRange } from "./pdfSourceLayout";
+import { renderLiteralGroup } from "./pdfLiteralGroup";
 
 export const PDF_TRANSLATION_CHANGE = "koodo-pdf-translation-change";
 export { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
@@ -220,16 +221,26 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     }
     const byId = new Map(blocks.map(b => [b.id, b]));
     const layout=format?.source_layout;
+    const literalIds=new Set((format?.literal_groups||[]).flatMap(g=>g.lines.flatMap(line=>line.block_id?[line.block_id]:[])));
     const contents = new Map((format?.toc_entries || []).map(entry => [entry.block_id, entry]));
     const groups = new Map((format?.paragraph_groups || []).flatMap(ids => {
       // A cached prose group may predate TOC detection. Never join its entries.
-      if (ids.some(id => contents.has(id)||layout?.code_ids.includes(id))) return [];
+      if (ids.some(id => contents.has(id)||layout?.code_ids.includes(id)||literalIds.has(id))) return [];
       return [[ids[0], ids] as [string, string[]]];
     }));
     const consumed = new Set<string>([...(layout?.suppress_images||[]),...(layout?.inlines||[]).map(i=>i.block_id)]);
     const items: {blocks: ParallelBlock[]; table?: NonNullable<PageFormat["tables"]>[number]; node?: HTMLElement}[] = [];
+    for(const group of format?.literal_groups||[]){
+      const ids=Array.from(new Set(group.lines.flatMap(line=>line.block_id?[line.block_id]:[])));
+      ids.forEach(id=>consumed.add(id));
+      const first=byId.get(ids[0])||blocks[0];if(!first)continue;
+      const representative={...first,id:group.id,kind:group.kind==='paragraph'?'paragraph':"code",text:"",page:group.lines[0].page,
+        anchors:[{page:group.lines[0].page,bbox:group.bbox}]} as ParallelBlock;
+      items.push({blocks:[representative],node:renderLiteralGroup(doc,group,blocks,bodySize/(format?.body_font_size||10),format)});
+    }
     for(const region of layout?.code||[]){
       const ids=Array.from(new Set(region.parts.flatMap(p=>p.block_id?[p.block_id]:[])));
+      if(ids.some(id=>literalIds.has(id)))continue;
       ids.forEach(id=>consumed.add(id));
       const representative={...(byId.get(ids[0])||blocks[0]),id:region.id,kind:"code",text:"",page:blocks[0]?.page,
         anchors:[{page:blocks[0]?.page,bbox:region.bbox}]} as ParallelBlock;
@@ -338,6 +349,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         .koodo-local-translation p,.koodo-local-translation pre{margin:0;font:inherit;white-space:normal;}
         .koodo-local-translation pre{white-space:pre-wrap;font-family:"SFMono-Regular",Consolas,monospace;}
         .koodo-local-translation .translation-source-code{white-space:pre;overflow-x:auto;background:#f6f7f6;color:#20231e;padding:.65em;box-sizing:border-box;font-size:.86em;line-height:1.5;tab-size:4;overflow-wrap:normal;}
+        .koodo-local-translation .translation-source-formula{overflow-x:auto;padding:.4em 0;font-family:"Cambria Math","STIX Two Math","Times New Roman",serif;}
         .koodo-local-translation .translation-callout{display:flex;gap:12px;border:1px solid currentColor;padding:12px;box-sizing:border-box;align-items:flex-start;}
         .koodo-local-translation .translation-callout>img{height:auto;flex-shrink:0;}
         .koodo-local-translation .translation-callout>div{flex:1;min-width:0;}
@@ -387,7 +399,8 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       const chapterContent = chapter ? (content.get(chapter.id) || await loadChapter(chapter.id)) : null;
       if (disposed || !article.isConnected) return;
       const format = chapterContent?.page_formats?.[String(physicalPage(index))];
-      const related=new Set([...(format?.source_layout?.code||[]).flatMap(c=>c.parts.flatMap(p=>p.block_id?[p.block_id]:[])),...(format?.inline_sources||[]).map(i=>i.block_id)]);
+      const related=new Set([...(format?.source_layout?.code||[]).flatMap(c=>c.parts.flatMap(p=>p.block_id?[p.block_id]:[])),...(format?.inline_sources||[]).map(i=>i.block_id),
+        ...(format?.literal_groups||[]).flatMap(g=>g.lines.flatMap(line=>line.block_id?[line.block_id]:[]))]);
       const blocks = chapterContent?.blocks.filter((block) => block.page === physicalPage(index)||related.has(block.id)) || [];
       const signature = JSON.stringify([blocks.map((block) => [block.id, block.translation]), format, chapterContent?.task?.status]);
       if (!force && article.dataset.signature === signature) return;
@@ -515,8 +528,13 @@ export function attachPdfTranslation(rendition: any, book: Book) {
           if(format.source_layout?.code.some(region=>region.parts.some(part=>{
             if(part.block_id!==first.blockId)return false;
             const range=sourceLiteralRange(canonical.translation?.text||canonical.text,part.text);
-            return range&&first.start>=range[0]&&first.end<=range[1];
+            return range&&first.start>=range[0]&&first.start<range[1];
           }))) targetIndex=Number(page)-1+(rendition.isStartFromEven==="yes"&&rendition.readerMode==="double"?1:0);
+          if(format.literal_groups?.some(group=>group.lines.some(line=>{
+            if(line.block_id!==first.blockId)return false;
+            const range=sourceLiteralRange(canonical.translation?.text||canonical.text,line.text);
+            return range&&first.start>=range[0]&&first.start<range[1];
+          })))targetIndex=Number(page)-1+(rendition.isStartFromEven==="yes"&&rendition.readerMode==="double"?1:0);
         }
       }
       if(targetIndex!==anchor.page)await rendition.goToPage(physicalPage(targetIndex));

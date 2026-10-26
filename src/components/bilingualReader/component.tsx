@@ -5,6 +5,7 @@ import { isReadingRawPDF } from "../../utils/common";
 import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual, visiblePdfPage } from "../../utils/reader/pdfTranslation";
 import { ChapterContent, TranslationApiError, TranslationBook, translationApi } from "./api";
 import WholeBookControls from "./wholeBookControls";
+import LayoutControls from "./layoutControls";
 import { openBookTranslation } from "./events";
 import "./reader.css";
 
@@ -150,6 +151,10 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
           <button disabled={!!busy || !pageReady} onClick={restoreFormat}>{busy || "恢复本页格式"}</button>
         </>}
       </div>}
+      {isReadingRawPDF(book) && <LayoutControls bookId={metadata.id} page={page}
+        model={task?.model || model} automatic={!!enabled && !!pageFormat?.layout_uncertain}
+        onApplied={notify} />}
+      {task?.error_code === "layout_requires_confirmation" && <p role="status">跨页排版尚待确认，请重新识别排版后继续翻译。</p>}
     </div> : !error && <p role="status">正在读取章节…</p>}
   </section>;
 }

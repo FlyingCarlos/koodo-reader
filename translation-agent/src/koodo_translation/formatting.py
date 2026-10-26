@@ -12,6 +12,7 @@ import pymupdf
 from agents import Agent, ModelSettings, OpenAIResponsesModel, RunConfig
 from pydantic import BaseModel, Field
 
+from .layout_sources import local_layout, page_groups
 from .storage import write_private_json
 from .structure import load_structure
 from .toc import toc_entries
@@ -168,16 +169,33 @@ def source_formats(folder: Path, book: dict, pages: list[int]):
         write_private_json(path, cached)
     result = {str(p): cached[str(p)] for p in pages}
     structure = load_structure(folder, book)
+    grouped = page_groups(folder, book, pages)
+    audited = local_layout(folder, book, pages)
     # Derive this cheap additive metadata even for old cached pages. Old prose
     # grouping must not keep merging contents rows after an upgrade.
     for number in pages:
         layout = structure[str(number)]
         code_ids = set(layout["code_ids"])
+        code_ids.update(
+            line["block_id"]
+            for g in grouped[str(number)]
+            if g["kind"] in {"code", "formula"}
+            for line in g["lines"]
+        )
         result[str(number)] = {
             **result[str(number)],
             "marks": [m for m in result[str(number)]["marks"] if m["block_id"] not in code_ids],
             "source_layout": layout,
+            "literal_groups": grouped[str(number)],
+            "layout_uncertain": audited[str(number)]["uncertain"],
         }
+        paragraph_ids = {line["block_id"] for g in grouped[str(number)] for line in g["lines"]}
+        if paragraph_ids:
+            result[str(number)]["paragraph_groups"] = [
+                ids
+                for ids in result[str(number)]["paragraph_groups"]
+                if not any(i in paragraph_ids for i in ids)
+            ]
         if layout["inlines"]:
             result[str(number)]["inline_sources"] = layout["inlines"]
         entries = toc_entries(
@@ -308,7 +326,11 @@ def validate_alignment(source, texts, alignment):
 def fingerprint(source, texts):
     # TOC layout is deterministic presentation, not part of Agent style/cell
     # alignment. Adding it must not invalidate existing bold/table mappings.
-    source = {k: v for k, v in source.items() if k not in {"toc_entries", "source_layout"}}
+    source = {
+        k: v
+        for k, v in source.items()
+        if k not in {"toc_entries", "source_layout", "literal_groups", "layout_uncertain"}
+    }
     return hashlib.sha256(
         json.dumps({"source": source, "texts": texts}, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()

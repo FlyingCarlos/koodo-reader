@@ -1,18 +1,18 @@
 import { PageFormat, ParallelBlock, SourceCode } from "../../components/bilingualReader/api";
 import { renderTranslationSlice } from "./pdfRichText";
 
-export function sourceLiteralRange(text: string, source: string): [number, number] | null {
+export function sourceLiteralRange(text: string, source: string, from=0): [number, number] | null {
   const positions: number[] = []; let normalized = "";
   for (let i=0;i<text.length;i++) if (!/\s/.test(text[i])) {positions.push(i); normalized+=text[i];}
-  const needle=source.replace(/\s/g,""); const at=normalized.indexOf(needle);
+  const needle=source.replace(/\s/g,""); const at=normalized.indexOf(needle,positions.filter(p=>p<from).length);
   return at<0 || !needle ? null : [positions[at],positions[at+needle.length-1]+1];
 }
 
 // Added layout whitespace is outside canonical anchors. Old notes retain their
 // original UTF-16 offsets even when a formerly flattened code block becomes pre.
-export function renderSourceLiteral(doc: Document, block: ParallelBlock, source: string): HTMLElement {
+export function renderSourceLiteral(doc: Document, block: ParallelBlock, source: string, from=0): HTMLElement {
   const root=doc.createElement("span"), canonical=block.translation?.text || block.text;
-  let range=sourceLiteralRange(canonical,source);
+  let range=sourceLiteralRange(canonical,source,from);
   if (!range) {root.textContent=source; root.dataset.sourceLiteral=block.id; return root;}
   if(canonical.replace(/\s/g,"")===source.replace(/\s/g,""))range=[0,canonical.length];
   let cursor=range[0];
