@@ -49,6 +49,7 @@ import { parseWithSystemOCR } from "../../utils/request/common";
 import { isElectron } from "react-device-detect";
 import { attachPdfTranslation, isPdfBilingual, PDF_TRANSLATION_CHANGE } from "../../utils/reader/pdfTranslation";
 import { comparisonViewport } from "../../utils/reader/pdfComparisonLayout";
+import { attachPdfContentBackground } from "../../utils/reader/pdfContentBackground";
 declare var window: any;
 let lock = false; //prevent from clicking too fasts
 
@@ -431,7 +432,10 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
       },
       Kookit
     );
-    if (isReadingRawPDF(this.props.currentBook)) attachPdfTranslation(rendition, this.props.currentBook);
+    if (isReadingRawPDF(this.props.currentBook)) {
+      attachPdfContentBackground(rendition, this.props.currentBook.key);
+      attachPdfTranslation(rendition, this.props.currentBook);
+    }
     if (this.props.currentBook.format === "TXT") {
       let bookLocation = ConfigService.getObjectConfig(
         this.props.currentBook.key,

@@ -1,0 +1,5 @@
+.pdf-content-background-setting .single-control-switch-container { gap: 12px; }
+.pdf-content-background-setting button { flex: 0 0 auto; padding: 0; border: 0; color: inherit; }
+.pdf-content-background-setting button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.pdf-content-background-setting button:disabled { cursor: wait; }
+.pdf-content-background-setting p { font-size: 12px; line-height: 1.6; margin: 0 20px 12px; }

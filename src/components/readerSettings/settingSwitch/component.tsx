@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { detectLocalLanguage, isReadingRawPDF } from "../../../utils/common";
 import BookUtil from "../../../utils/file/bookUtil";
 import SliderList from "../sliderList";
+import PdfBackgroundSetting from "./pdfBackgroundSetting";
 
 const readingRulerSliderConfigs = [
   {
@@ -584,7 +585,8 @@ class SettingSwitch extends React.Component<
             return true;
           })
           .map((item) => (
-            <div className="single-control-switch-container" key={item.title}>
+            <React.Fragment key={item.title}>
+            <div className="single-control-switch-container">
               <span className="single-control-switch-title">
                 <Trans>{item.title}</Trans>
               </span>
@@ -658,6 +660,10 @@ class SettingSwitch extends React.Component<
                 ></span>
               </span>
             </div>
+            {item.propName === "isKeepPDFBackground" && isReadingRawPDF(this.props.currentBook) &&
+              <PdfBackgroundSetting key={this.props.currentBook.key} bookKey={this.props.currentBook.key}
+                renderBook={this.props.renderBookFunc} />}
+            </React.Fragment>
           ))}
       </>
     );
