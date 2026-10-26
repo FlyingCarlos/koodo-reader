@@ -6,6 +6,7 @@ import { ChapterContent, PageFormat, ParallelBlock, TranslationBook, translation
 
 import { sourceBlockMetrics, sourceTextRuns } from "./pdfComparisonLayout";
 import { renderTranslationSlice, renderTranslationTable, renderTranslationToc, translationFragments } from "./pdfRichText";
+import { renderSourceCode, renderSourceParagraph, sourceLiteralRange } from "./pdfSourceLayout";
 
 export const PDF_TRANSLATION_CHANGE = "koodo-pdf-translation-change";
 export { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
@@ -104,7 +105,14 @@ export function paintTranslationNote(doc: Document, note: any, bookId: string, o
   clearTranslationMarks(doc, note.key);
   for (const part of saved.parts) {
     const fragments = translationFragments(doc, part.blockId);
-    if (fragments.map(b => b.textContent || "").join("").slice(part.start, part.end) !== part.quote) continue;
+    const overlaps=fragments.flatMap(block=>{
+      const offset=Number(block.dataset.translationStart||0);
+      const from=Math.max(0,part.start-offset),to=Math.min(block.textContent!.length,part.end-offset);
+      return to>from?[{block,offset,from,to}]:[];
+    });
+    // A legacy block may now have source fragments on two different PDF pages.
+    // Validate every visible overlap against its original absolute text offsets.
+    if(overlaps.some(({block,offset,from,to})=>block.textContent!.slice(from,to)!==part.quote.slice(offset+from-part.start,offset+to-part.start)))continue;
     for (const block of fragments) {
       const offset = Number(block.dataset.translationStart || 0);
       const from = Math.max(0, part.start - offset), to = Math.min(block.textContent!.length, part.end - offset);
@@ -211,14 +219,32 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       if (node) for (const id of table.cells.flatMap(c => c.block_ids)) tableByBlock.set(id, {table, node});
     }
     const byId = new Map(blocks.map(b => [b.id, b]));
+    const layout=format?.source_layout;
     const contents = new Map((format?.toc_entries || []).map(entry => [entry.block_id, entry]));
     const groups = new Map((format?.paragraph_groups || []).flatMap(ids => {
       // A cached prose group may predate TOC detection. Never join its entries.
-      if (ids.some(id => contents.has(id))) return [];
+      if (ids.some(id => contents.has(id)||layout?.code_ids.includes(id))) return [];
       return [[ids[0], ids] as [string, string[]]];
     }));
-    const consumed = new Set<string>();
+    const consumed = new Set<string>([...(layout?.suppress_images||[]),...(layout?.inlines||[]).map(i=>i.block_id)]);
     const items: {blocks: ParallelBlock[]; table?: NonNullable<PageFormat["tables"]>[number]; node?: HTMLElement}[] = [];
+    for(const region of layout?.code||[]){
+      const ids=Array.from(new Set(region.parts.flatMap(p=>p.block_id?[p.block_id]:[])));
+      ids.forEach(id=>consumed.add(id));
+      const representative={...(byId.get(ids[0])||blocks[0]),id:region.id,kind:"code",text:"",page:blocks[0]?.page,
+        anchors:[{page:blocks[0]?.page,bbox:region.bbox}]} as ParallelBlock;
+      items.push({blocks:[representative],node:renderSourceCode(doc,region,blocks)});
+    }
+    for(const callout of layout?.callouts||[]){
+      const members=callout.block_ids.map(id=>byId.get(id)).filter(Boolean) as ParallelBlock[];
+      const imageBlock=byId.get(callout.id);if(!imageBlock||!members.length)continue;
+      consumed.add(callout.id);members.forEach(b=>consumed.add(b.id));
+      const aside=doc.createElement("aside");aside.className="translation-callout";
+      const image=doc.createElement("img");image.src=`/api/translation/books/${metadata!.id}/blocks/${callout.id}/image?icon=1`;
+      image.alt="原提示框图标";image.style.width=`${Math.min(64,(callout.image_bbox[2]-callout.image_bbox[0])*sourceScale)}px`;
+      const body=doc.createElement("div");members.forEach(member=>body.appendChild(renderSourceParagraph(doc,member,blocks,format)));
+      aside.append(image,body);items.push({blocks:[{...imageBlock,anchors:[{page:imageBlock.page,bbox:callout.bbox}]}],node:aside});
+    }
     for (const block of blocks) {
       if (consumed.has(block.id)) continue;
       const table = tableByBlock.get(block.id);
@@ -227,11 +253,12 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       ids.forEach(id => consumed.add(id));
       items.push({blocks: ids.map(id => byId.get(id)!), table: table?.table, node: table?.node});
     }
+    items.sort((a,b)=>a.blocks[0].anchors[0].bbox[1]-b.blocks[0].anchors[0].bbox[1]);
     let previousBottom = 28;
     items.forEach((item, index) => {
       const block = item.blocks[0];
       const metric = item.table ? sourceBlockMetrics({...block, kind: "image", anchors: [{page:block.page, bbox:item.table.bbox}]},
-        runs, sourceScale, pageRect, bodySize) : metrics.get(block.id)!;
+        runs, sourceScale, pageRect, bodySize) : metrics.get(block.id)||sourceBlockMetrics({...block,kind:"image"},runs,sourceScale,pageRect,bodySize);
       const section = doc.createElement("section");
       section.dataset.sourceBlock = item.table?.id || block.id;
       section.dataset.sourceTop = String(metric.top); section.dataset.sourceMatched = String(metric.matched);
@@ -244,7 +271,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       if (stacked) { section.style.position = "relative"; section.style.marginTop = "18px"; }
       else {
         section.style.position = "absolute"; section.style.left = `${gutter}px`;
-        section.style.width = `${item.table || block.kind === "image" ? width : Math.min(width, bodySize * 36)}px`;
+        section.style.width = `${item.table || block.kind === "image" || block.kind === "code" ? width : Math.min(width, bodySize * 36)}px`;
       }
       const tocNode = toc && renderTranslationToc(doc, block, toc, format?.translated_marks[block.id]);
       if (tocNode) {
@@ -271,7 +298,10 @@ export function attachPdfTranslation(rendition: any, book: Book) {
           if (member.kind === "code") {
             const code = doc.createElement("code"); code.dataset.translationBlock = member.id;
             code.dataset.translationStart = "0"; code.textContent = member.text; paragraph.appendChild(code);
-          } else if (member.translation) paragraph.appendChild(renderTranslationSlice(doc, member, format?.translated_marks[member.id]));
+          } else if (member.translation) {
+            const sourceParagraph=renderSourceParagraph(doc,member,blocks,format);
+            paragraph.append(...Array.from(sourceParagraph.childNodes));
+          }
           else {
             const pending = doc.createElement("span"); pending.textContent = "本段尚未翻译";
             pending.className = "translation-pending"; paragraph.appendChild(pending);
@@ -286,7 +316,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       }
       article.appendChild(section);
       if (stacked) return;
-      const sourceTop = block.kind === "image" || item.table ? metric.top : metric.top - size * .25;
+      const sourceTop = block.kind === "image" || block.kind === "code" || item.table ? metric.top : metric.top - size * .25;
       const top = Math.max(sourceTop, previousBottom + (index ? (tocNode ? 2 : 6) : 0));
       section.style.top = `${top}px`; section.dataset.sourceTextTop = String(sourceTop);
       section.dataset.alignment = top - sourceTop < 1 ? "aligned" : "expanded";
@@ -307,6 +337,11 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         .koodo-local-translation {position:absolute;left:${stacked ? "0" : "50%"};top:0;width:${stacked ? "100%" : "50%"};box-sizing:border-box;padding:${stacked ? "14px 16px 24px" : "0"};border-${stacked ? "top" : "left"}:1px solid ${dark ? "#596052" : "#d8d8d0"};color:${dark ? "#e7e9e3" : "#292e29"};font:${fontSize}px/1.85 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere;}
         .koodo-local-translation p,.koodo-local-translation pre{margin:0;font:inherit;white-space:normal;}
         .koodo-local-translation pre{white-space:pre-wrap;font-family:"SFMono-Regular",Consolas,monospace;}
+        .koodo-local-translation .translation-source-code{white-space:pre;overflow-x:auto;background:#f6f7f6;color:#20231e;padding:.65em;box-sizing:border-box;font-size:.86em;line-height:1.5;tab-size:4;overflow-wrap:normal;}
+        .koodo-local-translation .translation-callout{display:flex;gap:12px;border:1px solid currentColor;padding:12px;box-sizing:border-box;align-items:flex-start;}
+        .koodo-local-translation .translation-callout>img{height:auto;flex-shrink:0;}
+        .koodo-local-translation .translation-callout>div{flex:1;min-width:0;}
+        .koodo-local-translation .translation-inline-literal{white-space:pre-wrap;margin:0 .2em;}
         .koodo-local-translation h2{font-size:inherit;line-height:inherit;margin:0;font-weight:700;}
         .koodo-local-translation strong{font-weight:700;}
         .koodo-local-translation em{font-style:italic;}
@@ -351,8 +386,9 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       const chapter = meta?.chapters.find((item) => item.start_page <= physicalPage(index) && item.end_page >= physicalPage(index));
       const chapterContent = chapter ? (content.get(chapter.id) || await loadChapter(chapter.id)) : null;
       if (disposed || !article.isConnected) return;
-      const blocks = chapterContent?.blocks.filter((block) => block.page === physicalPage(index)) || [];
       const format = chapterContent?.page_formats?.[String(physicalPage(index))];
+      const related=new Set([...(format?.source_layout?.code||[]).flatMap(c=>c.parts.flatMap(p=>p.block_id?[p.block_id]:[])),...(format?.inline_sources||[]).map(i=>i.block_id)]);
+      const blocks = chapterContent?.blocks.filter((block) => block.page === physicalPage(index)||related.has(block.id)) || [];
       const signature = JSON.stringify([blocks.map((block) => [block.id, block.translation]), format, chapterContent?.task?.status]);
       if (!force && article.dataset.signature === signature) return;
       // Background updates must not destroy the user's active translated selection.
@@ -375,7 +411,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         message.textContent = meta ? "本页没有可提取的正文。" : "打开“翻译”面板，提取本书后开始翻译。";
         article.appendChild(message);
       }
-      notes.forEach((note) => { if (note.chapterIndex === index) paintTranslationNote(doc, note, meta!.id, noteClick); });
+      notes.forEach((note) => { paintTranslationNote(doc, note, meta!.id, noteClick); });
       resizePage(index, doc);
     } catch {
       if (article.isConnected && !article.querySelector("[data-translation-block]")) article.textContent = "译文暂时无法读取，请打开翻译面板重试。原文仍可阅读。";
@@ -468,12 +504,28 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       ConfigService.setObjectConfig(book.key, { ...rendition.getPosition(), localTranslation: anchor }, "recordLocation");
       setPdfBilingual(book.key, true);
     } else {
-      await decorate(anchor.page);
-      const doc: Document | null = rendition.getSubDocument(anchor.page);
+      let targetIndex=anchor.page;
+      const meta=await getBook();
+      const chapter=meta?.chapters.find(c=>c.start_page<=physicalPage(anchor.page)&&c.end_page>=physicalPage(anchor.page));
+      const chapterData=chapter?(content.get(chapter.id)||await loadChapter(chapter.id)):null;
+      const first=anchor.parts[0];
+      const canonical=chapterData?.blocks.find(b=>b.id===first?.blockId);
+      if(first&&canonical){
+        for(const [page,format] of Object.entries(chapterData?.page_formats||{})){
+          if(format.source_layout?.code.some(region=>region.parts.some(part=>{
+            if(part.block_id!==first.blockId)return false;
+            const range=sourceLiteralRange(canonical.translation?.text||canonical.text,part.text);
+            return range&&first.start>=range[0]&&first.end<=range[1];
+          }))) targetIndex=Number(page)-1+(rendition.isStartFromEven==="yes"&&rendition.readerMode==="double"?1:0);
+        }
+      }
+      if(targetIndex!==anchor.page)await rendition.goToPage(physicalPage(targetIndex));
+      await decorate(targetIndex);
+      const doc: Document | null = rendition.getSubDocument(targetIndex);
       const target = Array.from(doc?.querySelectorAll<HTMLElement>("[data-translation-block]") || [])
-        .find((node) => node.dataset.translationBlock === anchor.parts[0]?.blockId);
+        .find((node) => node.dataset.translationBlock === anchor.parts[0]?.blockId && Number(node.dataset.translationStart||0)+(node.textContent?.length||0)>anchor.parts[0].start);
       if (target && rendition.readerMode === "scroll") {
-        const container = rendition.getDocument()?.getElementById(`pdf-container-${anchor.page}`);
+        const container = rendition.getDocument()?.getElementById(`pdf-container-${targetIndex}`);
         if (container) rendition.element.scrollTo(0, Math.max(0, container.offsetTop + target.getBoundingClientRect().top - 100));
       } else if (target) {
         const article = target.closest<HTMLElement>(".koodo-local-translation");
@@ -488,8 +540,10 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     translated.forEach((note) => notes.set(note.key, note));
     const result = await base(items.filter((note) => !translationRange(note)), callback);
     if (metadata) translated.forEach((note) => {
-      const doc = rendition.getSubDocument(note.chapterIndex);
-      if (doc) paintTranslationNote(doc, note, metadata!.id, callback);
+      for(const index of mounted){
+        const doc = rendition.getSubDocument(index);
+        if (doc) paintTranslationNote(doc, note, metadata!.id, callback);
+      }
     });
     return result;
   });
@@ -503,8 +557,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
   });
   wrap("removeOneNote", (base, key, index) => {
     notes.delete(key);
-    const doc = rendition.getSubDocument(index ?? Number(rendition.getPosition().chapterDocIndex || 0));
-    if (doc) clearTranslationMarks(doc, key);
+    for(const page of mounted){const doc=rendition.getSubDocument(page);if(doc)clearTranslationMarks(doc,key);}
     return base(key, index);
   });
   const refresh = async () => {

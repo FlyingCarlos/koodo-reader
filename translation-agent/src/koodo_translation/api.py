@@ -192,7 +192,10 @@ async def source(request):
 async def image(request):
     store = request.app.state.documents
     data = await run_in_threadpool(
-        store.image, request.path_params["book_id"], request.path_params["block_id"]
+        store.image,
+        request.path_params["book_id"],
+        request.path_params["block_id"],
+        request.query_params.get("icon") == "1",
     )
     return Response(data, media_type="image/png")
 

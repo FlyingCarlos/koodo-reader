@@ -29,9 +29,19 @@ class BookQueue:
                 )
             }
         grouped = {}
+        eligible = {}
         for task in tasks:
+            if task["book_id"] not in eligible:
+                try:
+                    eligible[task["book_id"]] = {
+                        b["id"]
+                        for b in self.queue.documents.get(task["book_id"])["blocks"]
+                        if b["kind"] not in {"code", "image"}
+                    }
+                except (KeyError, ValueError):
+                    eligible[task["book_id"]] = set()
             completed = sum(
-                len(chunk["ids"])
+                len(set(chunk["ids"]) & eligible[task["book_id"]])
                 for chunk in json.loads(task["chunks"])
                 if chunk["job_id"] in completed_jobs
             )

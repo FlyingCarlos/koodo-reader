@@ -31,7 +31,11 @@ def estimate(text: str):
 
 def segment_payload(block: dict, mode: str | None = None, *, is_toc: bool = False) -> dict:
     if mode != SOURCE_MODE or not is_toc:
-        return {"id": block["id"], "text": block["text"], "protected": block.get("protected", [])}
+        return {
+            "id": block["id"],
+            "text": block.get("translation_source", block["text"]),
+            "protected": block.get("protected", []),
+        }
     text = compact_text(block["text"])
     protected = list(block.get("protected", []))
     if any(literal not in text for literal in protected):

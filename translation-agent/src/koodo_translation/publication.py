@@ -37,10 +37,14 @@ class PublicationStore:
                             ids,
                         )
                     ]
-        files = [folder / "document.json", folder / "source-format-v1.json"]
+        files = [
+            folder / "document.json",
+            folder / "source-format-v1.json",
+            folder / "source-structure-v1.json",
+        ]
         files += sorted(folder.glob("page-format-*.json"))
         stamps = [(p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.exists()]
-        value = [3, (row["id"], row["revision"]) if row else None, jobs, stamps]
+        value = [4, (row["id"], row["revision"]) if row else None, jobs, stamps]
         return hashlib.sha256(json.dumps(value).encode()).hexdigest()
 
     def chapter(self, book_id, chapter_id, build):
@@ -125,7 +129,11 @@ class PublicationStore:
                     archive.writestr(
                         f"chapters/{chapter_id}.json", json.dumps(content, ensure_ascii=False)
                     )
-                for path in [folder / "source-format-v1.json", *folder.glob("page-format-*.json")]:
+                for path in [
+                    folder / "source-format-v1.json",
+                    folder / "source-structure-v1.json",
+                    *folder.glob("page-format-*.json"),
+                ]:
                     if path.exists():
                         # Export display metadata, never private Agent job IDs or credentials.
                         data = json.loads(path.read_text())

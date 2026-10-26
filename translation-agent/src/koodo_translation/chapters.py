@@ -132,6 +132,8 @@ class ChapterQueue:
     def summary(self, task: dict | None) -> dict | None:
         if task is None:
             return None
+        book = self.documents.get(task["book_id"])
+        translatable = {b["id"] for b in book["blocks"] if b["kind"] not in {"code", "image"}}
         finished, drafted, total, review_count, completed_batches = 0, 0, 0, 0, 0
         ids = [chunk["job_id"] for chunk in task["chunks"] if chunk["job_id"]]
         progress = {}
@@ -148,16 +150,17 @@ class ChapterQueue:
                     )
                 }
         for chunk in task["chunks"]:
-            total += len(chunk["ids"])
+            count = len(set(chunk["ids"]) & translatable)
+            total += count
             job = progress.get(chunk["job_id"])
             if job:
                 if job["drafted"]:
-                    drafted += len(chunk["ids"])
+                    drafted += count
                 if job["status"] == "completed":
-                    finished += len(chunk["ids"])
+                    finished += count
                     completed_batches += 1
                 if job["status"] == "needs_review":
-                    review_count += len(chunk["ids"])
+                    review_count += count
         return {
             "id": task["id"],
             "status": task["status"],
@@ -209,7 +212,9 @@ class ChapterQueue:
             texts = {
                 n["id"]: translations[n["id"]]["text"]
                 for n in nodes
-                if n["page"] == int(page) and n["id"] in translations
+                if n["page"] == int(page)
+                and n["id"] in translations
+                and n["kind"] not in {"code", "image"}
             }
             saved_path = folder / f"page-format-{int(page):04d}.json"
             saved = json.loads(saved_path.read_text()) if saved_path.exists() else None
@@ -239,14 +244,27 @@ class ChapterQueue:
             raise ValueError("本页不属于当前章节。")
         if source["status"] == "ready":
             return source
+        layout = source.get("source_layout")
         source = {
             k: v
             for k, v in source.items()
             if k
-            not in {"status", "translated_marks", "translated_cells", "toc_entries", "table_state"}
+            not in {
+                "status",
+                "translated_marks",
+                "translated_cells",
+                "toc_entries",
+                "table_state",
+                "source_layout",
+                "inline_positions",
+            }
         }
         nodes = [n for n in content["blocks"] if n["page"] == page]
-        texts = {n["id"]: n["translation"]["text"] for n in nodes if n["translation"]}
+        texts = {
+            n["id"]: n["translation"]["text"]
+            for n in nodes
+            if n["translation"] and n["kind"] not in {"code", "image"}
+        }
         if any(n["kind"] not in {"image", "code"} and n["id"] not in texts for n in nodes):
             raise ValueError("请先完成本页翻译，再恢复格式；已有译文会直接复用。")
         model = content["task"]["model"] if content["task"] else None
@@ -260,7 +278,7 @@ class ChapterQueue:
             {"format_version": 1, "source": source, "texts": texts}, model, resume
         )
         write_private_json(saved_path, {"fingerprint": digest, "job_id": job["id"]})
-        if source["marks"] or source["tables"]:
+        if source["marks"] or source["tables"] or source.get("inline_sources"):
             async with AsyncOpenAI(
                 api_key=self.auth.access_token, base_url=API, max_retries=0
             ) as client:
@@ -270,7 +288,10 @@ class ChapterQueue:
             self.jobs.save(job["id"], "completed", {"format": output, "usage": []})
         saved = {**output, "fingerprint": digest, "job_id": job["id"]}
         write_private_json(saved_path, saved)
-        return page_presentation(source, texts, saved)
+        result = page_presentation(source, texts, saved)
+        if layout is not None:
+            result["source_layout"] = layout
+        return result
 
     def table_progress(self, book_id: str, chapter_id: str | None = None):
         book = self.documents.get(book_id)
@@ -381,6 +402,22 @@ class ChapterQueue:
                 chapter = next(c for c in book["chapters"] if c["id"] == task["chapter_id"])
                 nodes = {node["id"]: node for node in book["blocks"]}
                 contents = toc_block_ids(book["blocks"])
+                changed = False
+                for chunk in task["chunks"]:
+                    old = self.jobs.get(chunk["job_id"]) if chunk["job_id"] else None
+                    if old and old["status"] == "completed":
+                        continue
+                    eligible = [
+                        i for i in chunk["ids"] if nodes[i]["kind"] not in {"code", "image"}
+                    ]
+                    if eligible != chunk["ids"]:
+                        changed = True
+                        if chunk["job_id"]:
+                            chunk["supersedes_job_id"] = chunk["job_id"]
+                        chunk["ids"], chunk["job_id"] = eligible, None
+                task["chunks"] = [c for c in task["chunks"] if c["ids"]]
+                if changed:
+                    self.save(task)
                 planned = replan_unstarted(task["chunks"], nodes)
                 if planned != task["chunks"]:
                     task["chunks"] = planned
@@ -389,20 +426,26 @@ class ChapterQueue:
                     api_key=self.auth.access_token, base_url=API, max_retries=0
                 ) as client:
                     for chunk in task["chunks"]:
-                        source = TranslationInput.model_validate(
-                            {
-                                "book_title": book["title"],
-                                "chapter_title": chapter["title"],
-                                "glossary": task["glossary"],
-                                "segments": [
-                                    segment_payload(
-                                        nodes[block_id],
-                                        chunk.get("source_mode"),
-                                        is_toc=block_id in contents,
-                                    )
-                                    for block_id in chunk["ids"]
-                                ],
-                            }
+                        source = (
+                            TranslationInput.model_validate(
+                                json.loads(self.jobs.get(chunk["job_id"])["input_json"])
+                            )
+                            if chunk["job_id"]
+                            else TranslationInput.model_validate(
+                                {
+                                    "book_title": book["title"],
+                                    "chapter_title": chapter["title"],
+                                    "glossary": task["glossary"],
+                                    "segments": [
+                                        segment_payload(
+                                            nodes[block_id],
+                                            chunk.get("source_mode"),
+                                            is_toc=block_id in contents,
+                                        )
+                                        for block_id in chunk["ids"]
+                                    ],
+                                }
+                            )
                         )
                         job = self.jobs.start(source.model_dump(), task["model"], chunk["job_id"])
                         if not chunk["job_id"]:

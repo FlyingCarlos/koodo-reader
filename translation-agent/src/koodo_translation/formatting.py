@@ -13,6 +13,7 @@ from agents import Agent, ModelSettings, OpenAIResponsesModel, RunConfig
 from pydantic import BaseModel, Field
 
 from .storage import write_private_json
+from .structure import load_structure
 from .toc import toc_entries
 from .workflow import run_stage
 
@@ -166,9 +167,19 @@ def source_formats(folder: Path, book: dict, pages: list[int]):
                 )
         write_private_json(path, cached)
     result = {str(p): cached[str(p)] for p in pages}
+    structure = load_structure(folder, book)
     # Derive this cheap additive metadata even for old cached pages. Old prose
     # grouping must not keep merging contents rows after an upgrade.
     for number in pages:
+        layout = structure[str(number)]
+        code_ids = set(layout["code_ids"])
+        result[str(number)] = {
+            **result[str(number)],
+            "marks": [m for m in result[str(number)]["marks"] if m["block_id"] not in code_ids],
+            "source_layout": layout,
+        }
+        if layout["inlines"]:
+            result[str(number)]["inline_sources"] = layout["inlines"]
         entries = toc_entries(
             [b for b in book["blocks"] if b["page"] == number], result[str(number)]["marks"]
         )
@@ -197,6 +208,17 @@ class CellQuotes(BaseModel):
 class FormatAlignment(BaseModel):
     marks: list[MarkQuote]
     cells: list[CellQuotes]
+    inlines: list["InlineQuote"] = []
+
+
+class InlineQuote(BaseModel):
+    source_id: str
+    quote: str = Field(min_length=1)
+    occurrence: int = Field(ge=0)
+    after: bool = True
+
+
+FormatAlignment.model_rebuild()
 
 
 def quote_range(text, quote, occurrence):
@@ -267,13 +289,26 @@ def validate_alignment(source, texts, alignment):
         for part in parts:
             text = texts[part["block_id"]]
             part["start"], part["end"] = utf16(text, part["start"]), utf16(text, part["end"])
-    return {"marks": marks, "cells": cells}
+    expected_inlines = {i["id"]: i for i in source.get("inline_sources", [])}
+    if len(alignment.inlines) != len(expected_inlines) or {
+        i.source_id for i in alignment.inlines
+    } != set(expected_inlines):
+        raise ValueError("必须为每个行内公式指定原译文中的插入位置。")
+    inlines = {}
+    for inline in alignment.inlines:
+        owner = expected_inlines[inline.source_id]["owner_id"]
+        start, end = quote_range(texts[owner], inline.quote, inline.occurrence)
+        inlines[inline.source_id] = utf16(texts[owner], end if inline.after else start)
+    result = {"marks": marks, "cells": cells}
+    if inlines:
+        result["inlines"] = inlines
+    return result
 
 
 def fingerprint(source, texts):
     # TOC layout is deterministic presentation, not part of Agent style/cell
     # alignment. Adding it must not invalidate existing bold/table mappings.
-    source = {k: v for k, v in source.items() if k != "toc_entries"}
+    source = {k: v for k, v in source.items() if k not in {"toc_entries", "source_layout"}}
     return hashlib.sha256(
         json.dumps({"source": source, "texts": texts}, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
@@ -291,6 +326,7 @@ def page_presentation(source, texts, saved=None):
         "status": "ready" if valid else "pending",
         "translated_marks": saved["marks"] if valid else {},
         "translated_cells": saved["cells"] if valid else {},
+        "inline_positions": saved.get("inlines", {}) if valid else {},
     }
 
 
@@ -310,6 +346,10 @@ once, in original text order, without adding, omitting, repeating or changing an
 quote must be copied VERBATIM from translation, including punctuation. occurrence is zero-based
 among exact matches within that translated block. Do not return HTML, Markdown or new translations.
 The application owns layout, style types, IDs, cell geometry and validation. Return the schema."""
+FORMATTER += """ For EACH inline_sources item, choose an exact quote in its owner_id's existing
+Chinese text, with occurrence and after=true/false, to place the original mathematical literal
+at its semantic position. Never rewrite or translate the formula or any code. Return inlines=[]
+when there are no inline_sources. Code blocks are handled locally and are not translation input."""
 
 
 async def align_page(source, texts, model_name, client, store, job):

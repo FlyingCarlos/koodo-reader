@@ -65,7 +65,14 @@ export type PageFormat = {
   translated_marks: Record<string, TextMark[]>;
   translated_cells: Record<string, CellFragment[]>;
   toc_entries?: TocEntry[];
+  source_layout?: SourceLayout;
+  inline_sources?: SourceInline[];
+  inline_positions?: Record<string, number>;
 };
+export type SourceInline = {id:string; block_id:string; owner_id:string; text:string; bbox:number[]};
+export type SourceCode = {id:string; bbox:number[]; parts:{block_id:string|null; prefix:string; text:string}[]};
+export type SourceLayout = {code:SourceCode[]; code_ids:string[]; inlines:SourceInline[];
+  callouts:{id:string; bbox:number[]; image_bbox:number[]; block_ids:string[]}[]; suppress_images:string[]};
 export type TocEntry = {block_id: string; title: string; page_label: string; indent: number; bold: boolean; page_bold?: boolean};
 
 export class TranslationApiError extends Error {

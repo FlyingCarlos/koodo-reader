@@ -172,6 +172,7 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
     );
     if (!highlighters) return;
     let highlightersByChapter = highlighters.filter((item: Note) => {
+      try { if (this.props.currentBook.format === "PDF" && JSON.parse(item.range).kind === "koodo-pdf-translation-v1") return true; } catch { /* Native ranges continue through their original page filter. */ }
       let cfi = JSON.parse(item.cfi);
       if (cfi.cfi) {
         // epub from 1.5.2 or older

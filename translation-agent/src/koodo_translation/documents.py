@@ -9,6 +9,7 @@ from pathlib import Path
 import pymupdf
 
 from .storage import JobStore, write_private_json
+from .structure import load_structure, monospace, prepare_book
 
 EXTRACTION_VERSION = "pdf-blocks-v2"
 MAX_PDF_BYTES = 128 * 1024 * 1024
@@ -124,6 +125,11 @@ def extract_pdf(path: Path, book_id: str, title: str = "") -> dict:
             page_number = page_index + 1
             chapter = next(c for c in chapters if c["start_page"] <= page_number <= c["end_page"])
             page_nodes = []
+            table_boxes = [
+                pymupdf.Rect(t.bbox)
+                for t in page.find_tables().tables
+                if t.row_count > 1 and t.col_count > 1
+            ]
             for block_index, block in enumerate(data["blocks"]):
                 if block.get("type") != 0:
                     continue
@@ -135,16 +141,18 @@ def extract_pdf(path: Path, book_id: str, title: str = "") -> dict:
                 bbox = [round(value, 2) for value in block["bbox"]]
                 font_size = max(s["size"] for s in spans)
                 at_edge = bbox[3] < page.rect.height * 0.085 or bbox[1] > page.rect.height * 0.94
-                if at_edge and (font_size < body_size * 0.95 or text.isdigit()):
+                if (
+                    at_edge
+                    and not any(monospace(s) for s in spans)
+                    and (font_size < body_size * 0.95 or text.isdigit())
+                ):
                     continue
-                mono = [
-                    s
-                    for s in spans
-                    if re.search(r"mono|courier|consolas|menlo|typewriter", s["font"], re.I)
-                ]
+                mono = [s for s in spans if monospace(s)]
                 mono_chars = sum(len(s["text"]) for s in mono)
                 kind = "paragraph"
-                if mono_chars > len(text) * 0.55:
+                if mono_chars > len(text) * 0.55 and not any(
+                    rect.contains(pymupdf.Rect(bbox)) for rect in table_boxes
+                ):
                     kind, text = "code", "\n".join(lines).strip()
                 elif font_size >= body_size * 1.25 and len(text) < 250:
                     kind = "heading"
@@ -258,6 +266,7 @@ def extract_pdf(path: Path, book_id: str, title: str = "") -> dict:
 class DocumentStore:
     def __init__(self, directory: Path):
         self.directory = directory
+        self.structures = {}
         self.root = directory / "books"
         self.root.mkdir(exist_ok=True, mode=0o700)
         self.jobs = JobStore(directory)
@@ -296,9 +305,12 @@ class DocumentStore:
 
     def get(self, book_id: str) -> dict:
         try:
-            return json.loads((self.folder(book_id) / "document.json").read_text())
+            book = json.loads((self.folder(book_id) / "document.json").read_text())
         except FileNotFoundError as error:
             raise KeyError("尚未提取这本书，请先导入 PDF。") from error
+        if book_id not in self.structures:
+            self.structures[book_id] = load_structure(self.folder(book_id), book)
+        return prepare_book(book, self.structures[book_id])
 
     def find(self, key: str) -> dict:
         with self.jobs.connect() as db:
@@ -307,17 +319,24 @@ class DocumentStore:
             raise KeyError("尚未提取这本书。")
         return self.get(row["book_id"])
 
-    def image(self, book_id: str, block_id: str) -> bytes:
+    def image(self, book_id: str, block_id: str, icon=False) -> bytes:
         manifest = self.get(book_id)
         node = next((node for node in manifest["blocks"] if node["id"] == block_id), None)
         if not node or node["kind"] != "image":
             raise KeyError("找不到原图。")
         with pymupdf.open(self.folder(book_id) / "source.pdf") as pdf:
             anchor = node["anchors"][0]
+            bbox = anchor["bbox"]
+            if icon:
+                layout = self.structures[book_id][str(anchor["page"])]
+                callout = next((c for c in layout["callouts"] if c["id"] == block_id), None)
+                if not callout:
+                    raise KeyError("找不到提示框图标。")
+                bbox = callout["image_bbox"]
             return (
                 pdf[anchor["page"] - 1]
                 .get_pixmap(
-                    clip=pymupdf.Rect(anchor["bbox"]),
+                    clip=pymupdf.Rect(bbox),
                     matrix=pymupdf.Matrix(2, 2),
                 )
                 .tobytes("png")

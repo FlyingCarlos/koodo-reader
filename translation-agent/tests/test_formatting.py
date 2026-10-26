@@ -120,3 +120,32 @@ async def test_format_agent_uses_real_sdk_schema_and_never_returns_rewritten_tra
     assert store.get(job["id"])["status"] == "completed"
     assert "text" not in result
     assert result["marks"]["body"][0]["start"] == 5
+
+
+def test_inline_math_anchors_existing_text_in_utf16_without_rewriting():
+    source = {
+        "marks": [],
+        "tables": [],
+        "inline_sources": [{"id": "math", "owner_id": "body", "text": "x + y <= 30"}],
+    }
+    texts = {"body": "😀添加约束，得到解。"}
+    output = validate_alignment(
+        source,
+        texts,
+        FormatAlignment.model_validate(
+            {
+                "marks": [],
+                "cells": [],
+                "inlines": [
+                    {"source_id": "math", "quote": "添加约束", "occurrence": 0, "after": True}
+                ],
+            }
+        ),
+    )
+    assert output["inlines"] == {"math": 6}
+    assert texts == {"body": "😀添加约束，得到解。"}
+    with pytest.raises(ValueError):
+        validate_alignment(source, texts, FormatAlignment(marks=[], cells=[], inlines=[]))
+    assert fingerprint(source, texts) == fingerprint(
+        {**source, "source_layout": {"code": []}}, texts
+    )
