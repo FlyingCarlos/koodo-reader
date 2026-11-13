@@ -5,6 +5,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { pathToFileURL } = require("node:url");
 const { app, net, protocol, shell } = require("electron");
+const { startBrowserReader } = require("./browser-reader");
 
 const origin = "koodo-desktop://reader";
 const executable = path.join(
@@ -13,6 +14,7 @@ const executable = path.join(
 const renderer = path.join(__dirname, "../../../build");
 let runtime;
 let login;
+let browserReader;
 
 function register() {
   protocol.registerSchemesAsPrivileged([{ scheme: "koodo-desktop", privileges: {
@@ -110,6 +112,16 @@ function start() {
     throw new Error("Translation service did not start");
   })();
   runtime.ready.catch(() => {});
+  browserReader = startBrowserReader(async (pathname, request) => {
+    await runtime.ready;
+    return backendRequest(pathname, request);
+  });
+}
+
+async function openInBrowser(senderUrl, book, chapter, page) {
+  if (!senderUrl?.startsWith(origin + "/") || !browserReader) return false;
+  await shell.openExternal(await browserReader.url(book, chapter, page));
+  return true;
 }
 
 function signIn(senderUrl) {
@@ -142,6 +154,7 @@ function signIn(senderUrl) {
 }
 
 async function stop() {
+  browserReader?.close();
   if (!runtime) return;
   runtime.loginChild?.kill();
   const child = runtime.child;
@@ -153,4 +166,4 @@ async function stop() {
   });
 }
 
-module.exports = { origin, register, connectProtocol, start, signIn, stop };
+module.exports = { origin, register, connectProtocol, start, signIn, openInBrowser, stop };

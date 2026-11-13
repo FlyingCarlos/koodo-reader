@@ -69,6 +69,7 @@ const INVOKE_CHANNELS = new Set([
   "file-command",
   "open-external",
   "translation-sign-in",
+  "open-book-in-browser",
   "dict-lookup",
   "partial-md5",
   "crypto-file-md5",

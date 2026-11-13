@@ -125,12 +125,27 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
     try {
       const buffer = file || await BookUtil.fetchBook(book.key, "pdf", true, book.path);
       if (!buffer || typeof buffer === "boolean") throw new Error("无法读取书库中的 PDF，请选择原始文件。");
-      setMetadata(await translationApi<TranslationBook>(`/books?key=${encodeURIComponent(book.key)}&title=${encodeURIComponent(book.name)}`, {
+      const extracted = await translationApi<TranslationBook>(`/books?key=${encodeURIComponent(book.key)}&title=${encodeURIComponent(book.name)}`, {
         method: "POST", headers: { "Content-Type": "application/pdf" }, body: buffer,
-      }));
+      });
+      setMetadata(extracted);
       setMissing(false); notify();
+      return extracted;
     } catch (failure) { setError(failure instanceof Error ? failure.message : "提取失败，请重试。"); }
     finally { setBusy(""); }
+  };
+  const openBrowserReader = async () => {
+    const current = metadata || (await upload());
+    if (!current) return;
+    const section = current.chapters.find((item) => item.start_page <= page && item.end_page >= page);
+    try {
+      const opened = await window.electronAPI.invoke<boolean>(
+        "open-book-in-browser", current.id, section?.id, page
+      );
+      if (!opened) throw new Error("无法打开浏览器阅读页。");
+    } catch {
+      setError("无法打开浏览器阅读页，请重试。");
+    }
   };
   const taskAction = async (action: "translate" | "pause" | "resume") => {
     if (!metadata || !chapter) return;
@@ -160,6 +175,8 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
   };
   return <section className="pdf-translation-panel" aria-label="翻译与双语设置">
     {!wholeOnly && <><button type="button" className="whole-book-entry" onClick={() => openBookTranslation(book)}>整本翻译…</button>
+    {desktop && <button type="button" className="whole-book-entry" disabled={!!busy}
+      onClick={openBrowserReader}>在浏览器中阅读</button>}
     <label className="pdf-translation-toggle"><input type="checkbox" checked={enabled}
       disabled={!isReadingRawPDF(book) || !metadata || !rendition || !!busy}
       onChange={(event) => { setEnabled(event.target.checked); setPdfBilingual(book.key, event.target.checked); }} />显示英中对照</label>
