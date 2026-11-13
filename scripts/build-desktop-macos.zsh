@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 
+if (( $# > 1 )) || [[ "${1:-}" != "" && "$1" != "--dmg" ]]; then
+  print -u2 'Usage: build-desktop-macos.zsh [--dmg]'
+  exit 2
+fi
+
 if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
   print -u2 'Build this version on an Apple silicon Mac.'
   exit 1
@@ -36,3 +41,24 @@ if ! mv "$staged/$app" "$out/$app"; then
   exit 1
 fi
 print "$out/$app"
+
+if [[ "${1:-}" == "--dmg" ]]; then
+  version=$(node -p 'require("./package.json").version')
+  revision=$(git rev-parse --short=12 HEAD)
+  image="$PWD/dist/Koodo-Reader-Custom-$version-$revision-arm64.dmg"
+  mkdir "$staged/dmg"
+  ditto --noextattr --norsrc "$out/$app" "$staged/dmg/$app"
+  ln -s /Applications "$staged/dmg/Applications"
+  hdiutil create -ov -format UDZO -fs HFS+ -volname "Koodo Reader Custom" \
+    -srcfolder "$staged/dmg" "$image"
+  hdiutil verify "$image"
+  mount=$(mktemp -d "$staged/mount.XXXXXX")
+  hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$image"
+  trap 'hdiutil detach "$mount"' EXIT
+  codesign --verify --deep --strict "$mount/$app"
+  test -x "$mount/$app/Contents/Resources/translation-runtime/koodo-translation"
+  test "$(readlink "$mount/Applications")" = /Applications
+  hdiutil detach "$mount"
+  trap - EXIT
+  print "$image"
+fi

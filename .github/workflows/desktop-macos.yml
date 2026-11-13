@@ -1,0 +1,37 @@
+name: Build Koodo Reader Custom DMG
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Yarn
+        run: npm install --global yarn@1.22.22
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Build and verify Apple silicon DMG
+        run: ./scripts/build-desktop-macos.zsh --dmg
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Koodo-Reader-Custom-macOS-arm64
+          path: dist/Koodo-Reader-Custom-*-arm64.dmg
+          if-no-files-found: error
+          compression-level: 0

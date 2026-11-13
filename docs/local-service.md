@@ -67,4 +67,6 @@ Homepage 的 `/Users/carlosz/service/homepage/config/services.yaml` 在 `macOS �
 
 在装好 Node、Yarn、uv 和苹果命令行开发工具的 Apple 芯片 Mac 上，从项目目录运行 `./scripts/build-desktop-macos.zsh`。应用包位于 `dist/mac-arm64/Koodo Reader Custom.app`，使用本机临时签名。应用启动和退出时会一并启动和停止自带的翻译服务。
 
+需要安装镜像时，运行 `./scripts/build-desktop-macos.zsh --dmg`，或在 GitHub Actions 中手动运行 **Build Koodo Reader Custom DMG**，选择 `codex/main` 或包含该工作流的分支。构建完成后可从该次运行的 **Artifacts** 下载 Apple 芯片版 DMG。此构建使用临时签名，未经过 Apple 公证。
+
 桌面版使用独立的本地翻译状态。使用同一个 iCloud Drive 的 `koodoreader` 书库时，它会在书库的 `translation` 子目录读写译文快照。应用按原 PDF 的内容匹配译文，可在不同电脑的书架编号之间重新关联。登录信息和运行中的任务数据库保存在本机。iCloud 文件到达后，应用在下一次后台检查时读取可用的快照。
