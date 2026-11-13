@@ -103,3 +103,30 @@
   margin-top: 7px;
   font-size: 15px;
 }
+.book-operation-panel.book-operation-panel-with-browser {
+  width: min(100%, 600px) !important;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 32px 37px;
+  gap: 11px 8px;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+.book-operation-panel-with-browser .book-opeartion-info {
+  grid-column: 1 / -1;
+}
+.book-operation-panel-with-browser > :is(.exit-reading-button, .add-bookmark-button, .enter-fullscreen-button) {
+  width: auto;
+  margin: 0;
+}
+.open-browser-reading-button {
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}

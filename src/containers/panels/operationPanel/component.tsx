@@ -12,6 +12,11 @@ import { isElectron } from "react-device-detect";
 import { handleExitFullScreen, handleFullScreen } from "../../../utils/common";
 import DatabaseService from "../../../utils/storage/databaseService";
 import BookLocation from "../../../models/BookLocation";
+import BookUtil from "../../../utils/file/bookUtil";
+import { isPdfBilingual, visiblePdfPage } from "../../../utils/reader/pdfTranslation";
+import {
+  importTranslationPdf, TranslationApiError, TranslationBook, translationApi,
+} from "../../../components/bilingualReader/api";
 declare var window: any;
 class OperationPanel extends React.Component<
   OperationPanelProps,
@@ -20,6 +25,7 @@ class OperationPanel extends React.Component<
   timeStamp: number;
   speed: number;
   timer: any;
+  private openingBrowser = false;
 
   constructor(props: OperationPanelProps) {
     super(props);
@@ -184,9 +190,41 @@ class OperationPanel extends React.Component<
       }
     });
   }
+  handleOpenInBrowser = async () => {
+    if (this.openingBrowser) return;
+    this.openingBrowser = true;
+    const { currentBook: book, htmlBook: { rendition } } = this.props;
+    const page = visiblePdfPage(rendition) || Math.max(1,
+      Number(rendition.getPosition()?.chapterDocIndex || 0) + 1 -
+      (rendition.isStartFromEven === "yes" && rendition.readerMode === "double" ? 1 : 0)
+    );
+    const notice = toast.loading("正在打开浏览器阅读页…");
+    try {
+      let metadata: TranslationBook;
+      try {
+        metadata = await translationApi<TranslationBook>(`/books?key=${encodeURIComponent(book.key)}`);
+      } catch (error) {
+        if (!(error instanceof TranslationApiError) || error.status !== 404) throw error;
+        const pdf = await BookUtil.fetchBook(book.key, "pdf", true, book.path);
+        if (!pdf || typeof pdf === "boolean") throw new Error("无法读取原 PDF");
+        metadata = await importTranslationPdf(book.key, book.name, pdf);
+      }
+      const opened = await window.electronAPI.invoke(
+        "open-book-in-browser", metadata.id, page, isPdfBilingual(book.key)
+      );
+      if (!opened) throw new Error("无法打开浏览器");
+      toast.dismiss(notice);
+    } catch {
+      toast.error("无法打开浏览器阅读页，请重试。", { id: notice });
+    } finally {
+      this.openingBrowser = false;
+    }
+  };
   render() {
+    const canOpenBrowser = window.location.protocol === "koodo-desktop:" &&
+      this.props.currentBook.format === "PDF";
     return (
-      <div className="book-operation-panel">
+      <div className={`book-operation-panel${canOpenBrowser ? " book-operation-panel-with-browser" : ""}`}>
         <div className="book-opeartion-info">
           <span>
             <Trans
@@ -267,6 +305,11 @@ class OperationPanel extends React.Component<
             </div>
           </div>
         </div>
+        {canOpenBrowser && (
+          <button type="button" className="open-browser-reading-button" onClick={this.handleOpenInBrowser}>
+            在浏览器中阅读
+          </button>
+        )}
       </div>
     );
   }

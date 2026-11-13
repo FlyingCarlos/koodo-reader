@@ -102,6 +102,13 @@ export async function translationApi<T>(path: string, options: RequestInit = {})
   return data;
 }
 
+export function importTranslationPdf(key: string, title: string, body: Blob | ArrayBuffer) {
+  const query = new URLSearchParams({ key, title });
+  return translationApi<TranslationBook>(`/books?${query}`, {
+    method: "POST", headers: { "Content-Type": "application/pdf" }, body,
+  });
+}
+
 export type BookTranslation = {
   id: string | null; status: string; model: string | null; current_chapter: string | null;
   error_code: string | null; total: number; completed: number;
