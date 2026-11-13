@@ -73,13 +73,13 @@ class DesktopLibrary:
 
     def sync(self):
         try:
+            cloud_books = pdfs(self.cloud)
             cloud_pdfs = {}
-            for key, size, md5, _ in pdfs(self.cloud):
+            for key, size, md5, _ in cloud_books:
                 if key.isdecimal() and md5:
                     cloud_pdfs.setdefault((size, md5), []).append(
                         self.cloud / "book" / f"{key}.pdf"
                     )
-            local_pdfs = pdfs(self.library)
             if not self.snapshots.exists():
                 self.snapshots.mkdir(mode=0o700, exist_ok=True)
             snapshots = {}
@@ -90,10 +90,19 @@ class DesktopLibrary:
         except (OSError, sqlite3.Error):
             return
 
-        for key, size, md5, original_path in local_pdfs:
+        self.sync_books(self.cloud, cloud_books, cloud_pdfs, snapshots)
+        if self.library != self.cloud:
+            try:
+                local_books = pdfs(self.library)
+            except (OSError, sqlite3.Error):
+                return
+            self.sync_books(self.library, local_books, cloud_pdfs, snapshots)
+
+    def sync_books(self, library, books, cloud_pdfs, snapshots):
+        for key, size, md5, original_path in books:
             if not key.isdecimal() or (size, md5) not in cloud_pdfs:
                 continue
-            source = self.library / "book" / f"{key}.pdf"
+            source = library / "book" / f"{key}.pdf"
             if not source.is_file():
                 source = Path(original_path or "")
             try:
