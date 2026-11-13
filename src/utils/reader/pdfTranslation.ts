@@ -1,5 +1,6 @@
 import { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
 import { renderOriginalPdfCover } from "./pdfCover";
+import { originalPdfFigure } from "./pdfFigure";
 import { translationUrl } from "./browserBook";
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
@@ -155,6 +156,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
   let noteClick: (event: Event) => void = () => {};
   const mounted = new Set<number>();
   const observers = new Map<Document, ResizeObserver>();
+  const sourceCanvases = new WeakMap<HTMLElement, HTMLCanvasElement | null>();
   const listeners: { element: HTMLElement; type: string; callback: EventListener; options: any }[] = [];
   let restoreListenerRegistration = () => {};
   let restoreScrollAnchor = () => {};
@@ -204,7 +206,8 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     }
   };
 
-  const renderBlocks = (article: HTMLElement, blocks: ParallelBlock[], sourceWidth: number, format?: PageFormat) => {
+  const renderBlocks = (article: HTMLElement, blocks: ParallelBlock[], sourceWidth: number,
+    sourceCanvas: HTMLCanvasElement | null, format?: PageFormat) => {
     const doc = article.ownerDocument, layer = doc.getElementById("koodoPDFLayer")!;
     const pageRect = layer.getBoundingClientRect(), sourceScale = pageRect.width / sourceWidth;
     const runs = sourceTextRuns(doc, layer);
@@ -252,8 +255,15 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       const imageBlock=byId.get(callout.id);if(!imageBlock||!members.length)continue;
       consumed.add(callout.id);members.forEach(b=>consumed.add(b.id));
       const aside=doc.createElement("aside");aside.className="translation-callout";
-      const image=doc.createElement("img");image.src=translationUrl(`/books/${metadata!.id}/blocks/${callout.id}/image?icon=1`);
-      image.alt="原提示框图标";image.style.width=`${Math.min(64,(callout.image_bbox[2]-callout.image_bbox[0])*sourceScale)}px`;
+      const iconWidth = Math.min(64, (callout.image_bbox[2] - callout.image_bbox[0]) * sourceScale);
+      const icon = originalPdfFigure(sourceCanvas, callout.image_bbox, sourceWidth, iconWidth, "原提示框图标");
+      const image = icon || doc.createElement("img");
+      if (!icon) {
+        const fallback = image as HTMLImageElement;
+        fallback.src = translationUrl(`/books/${metadata!.id}/blocks/${callout.id}/image?icon=1`);
+        fallback.alt = "原提示框图标";
+        fallback.style.width = `${iconWidth}px`;
+      }
       const body=doc.createElement("div");members.forEach(member=>body.appendChild(renderSourceParagraph(doc,member,blocks,format)));
       aside.append(image,body);items.push({blocks:[{...imageBlock,anchors:[{page:imageBlock.page,bbox:callout.bbox}]}],node:aside});
     }
@@ -294,12 +304,20 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       }
       else if (item.node) section.appendChild(item.node);
       else if (block.kind === "image") {
-        const bbox = block.anchors[0].bbox, image = doc.createElement("img");
-        image.src = translationUrl(`/books/${metadata!.id}/blocks/${block.id}/image`);
-        image.alt = `第 ${block.page} 页原图，图中文字保留原样`;
-        image.width = Math.max(1, Math.min(width, (bbox[2] - bbox[0]) * sourceScale));
-        image.height = image.width * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]);
-        image.style.cssText = "display:block;max-width:100%;height:auto"; section.appendChild(image);
+        const bbox = block.anchors[0].bbox;
+        const label = `第 ${block.page} 页原图，图中文字保留原样`;
+        const imageWidth = Math.max(1, Math.min(width, (bbox[2] - bbox[0]) * sourceScale));
+        const figure = originalPdfFigure(sourceCanvas, bbox, sourceWidth, imageWidth, label);
+        if (figure) section.appendChild(figure);
+        else {
+          const image = doc.createElement("img");
+          image.src = translationUrl(`/books/${metadata!.id}/blocks/${block.id}/image`);
+          image.alt = label;
+          image.width = imageWidth;
+          image.height = image.width * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]);
+          image.style.cssText = "display:block;max-width:100%;height:auto";
+          section.appendChild(image);
+        }
       } else {
         const paragraph = doc.createElement(block.kind === "heading" ? "h2" : block.kind === "code" ? "pre" : "p");
         if (block.kind === "list") {
@@ -352,7 +370,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         .koodo-local-translation .translation-source-code{white-space:pre;overflow-x:auto;background:#f6f7f6;color:#20231e;padding:.65em;box-sizing:border-box;font-size:.86em;line-height:1.5;tab-size:4;overflow-wrap:normal;}
         .koodo-local-translation .translation-source-formula{overflow-x:auto;padding:.4em 0;font-family:"Cambria Math","STIX Two Math","Times New Roman",serif;}
         .koodo-local-translation .translation-callout{display:flex;gap:12px;border:1px solid currentColor;padding:12px;box-sizing:border-box;align-items:flex-start;}
-        .koodo-local-translation .translation-callout>img{height:auto;flex-shrink:0;}
+        .koodo-local-translation .translation-callout>:is(img,canvas){height:auto;flex-shrink:0;}
         .koodo-local-translation .translation-callout>div{flex:1;min-width:0;}
         .koodo-local-translation .translation-inline-literal{white-space:pre-wrap;margin:0 .2em;}
         .koodo-local-translation h2{font-size:inherit;line-height:inherit;margin:0;font-weight:700;}
@@ -404,21 +422,26 @@ export function attachPdfTranslation(rendition: any, book: Book) {
         ...(format?.literal_groups||[]).flatMap(g=>g.lines.flatMap(line=>line.block_id?[line.block_id]:[]))]);
       const blocks = chapterContent?.blocks.filter((block) => block.page === physicalPage(index)||related.has(block.id)) || [];
       const signature = JSON.stringify([blocks.map((block) => [block.id, block.translation]), format, chapterContent?.task?.status]);
-      if (!force && article.dataset.signature === signature) return;
+      const canvas = doc.querySelector<HTMLCanvasElement>("#koodoPDFLayer #canvas > canvas");
+      if (!force && article.dataset.signature === signature && sourceCanvases.get(article) === canvas) return;
       // Background updates must not destroy the user's active translated selection.
       const selection = doc.getSelection();
       if (selection && !selection.isCollapsed && article.contains(selection.anchorNode)) return;
       article.dataset.signature = signature;
+      sourceCanvases.set(article, canvas);
       article.replaceChildren();
       const header = doc.createElement("header");
       const pendingTable = !!format?.tables?.length && format.status !== "ready";
       const tableMessage = !pendingTable ? "" : chapterContent?.task?.status === "failed" ? " · 表格结构恢复失败" : ["queued", "running"].includes(chapterContent?.task?.status || "") ? " · 表格结构恢复中" : " · 表格结构待恢复";
       header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}${tableMessage}`;
       article.appendChild(header);
-      const dimension = await rendition.chapterDocList[index].text.getDimension();
+      const sourcePage = rendition.chapterDocList[index].text;
+      const dimension = await sourcePage.getDimension();
+      const rotated = canvas && blocks.some(block => block.kind === "image") &&
+        typeof sourcePage.getPage === "function" && (await sourcePage.getPage()).rotate % 360 !== 0;
       if (renderOriginalPdfCover(article, blocks, physicalPage(index), dimension, stacked)) {
         // The original cover is presented as a full page, without translation gutters/header.
-      } else if (blocks.length) renderBlocks(article, blocks, dimension.width, format);
+      } else if (blocks.length) renderBlocks(article, blocks, dimension.width, rotated ? null : canvas, format);
       else {
         const message = doc.createElement("p");
         message.className = "translation-pending";
