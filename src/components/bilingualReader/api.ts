@@ -1,3 +1,5 @@
+import { translationUrl } from "../../utils/reader/browserBook";
+
 export type Chapter = {
   id: string;
   title: string;
@@ -89,7 +91,7 @@ export class TranslationApiError extends Error {
 }
 
 export async function translationApi<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api/translation${path}`, {
+  const response = await fetch(translationUrl(path), {
     ...options,
     headers: { "X-Koodo-Translation": "1", ...options.headers },
   });

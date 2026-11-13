@@ -4,6 +4,7 @@ import BookUtil from "../../utils/file/bookUtil";
 import { isReadingRawPDF } from "../../utils/common";
 import { isPdfBilingual, PDF_TRANSLATION_UPDATE, setPdfBilingual, visiblePdfPage } from "../../utils/reader/pdfTranslation";
 import { ChapterContent, TranslationApiError, TranslationBook, translationApi } from "./api";
+import { isBrowserBook } from "../../utils/reader/browserBook";
 import WholeBookControls from "./wholeBookControls";
 import LayoutControls from "./layoutControls";
 import { openBookTranslation } from "./events";
@@ -80,6 +81,7 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
   };
   useEffect(() => {
     void loadBook();
+    if (isBrowserBook) return;
     if (desktop) {
       void loadModels();
       return;
@@ -137,10 +139,9 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
   const openBrowserReader = async () => {
     const current = metadata || (await upload());
     if (!current) return;
-    const section = current.chapters.find((item) => item.start_page <= page && item.end_page >= page);
     try {
       const opened = await window.electronAPI.invoke<boolean>(
-        "open-book-in-browser", current.id, section?.id, page
+        "open-book-in-browser", current.id, page, enabled
       );
       if (!opened) throw new Error("无法打开浏览器阅读页。");
     } catch {
@@ -173,6 +174,11 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
     } catch (failure) { setError(failure instanceof Error ? failure.message : "恢复格式失败，已有译文仍保留。"); }
     finally { setBusy(""); }
   };
+  if (isBrowserBook) return <section className="pdf-translation-panel">
+    <label className="pdf-translation-toggle"><input type="checkbox" checked={enabled}
+      disabled={!metadata || !rendition || !isReadingRawPDF(book)}
+      onChange={(event) => { setEnabled(event.target.checked); setPdfBilingual(book.key, event.target.checked); }} />显示英中对照</label>
+  </section>;
   return <section className="pdf-translation-panel" aria-label="翻译与双语设置">
     {!wholeOnly && <><button type="button" className="whole-book-entry" onClick={() => openBookTranslation(book)}>整本翻译…</button>
     {desktop && <button type="button" className="whole-book-entry" disabled={!!busy}

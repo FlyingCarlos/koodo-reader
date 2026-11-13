@@ -724,8 +724,8 @@ const createMainWin = () => {
   ipcMain.handle("translation-sign-in", (event) =>
     desktopTranslation?.signIn(event.senderFrame?.url) ?? false
   );
-  ipcMain.handle("open-book-in-browser", (event, book, chapter, page) =>
-    desktopTranslation?.openInBrowser(event.senderFrame?.url, book, chapter, page) ?? false
+  ipcMain.handle("open-book-in-browser", (event, book, page, bilingual) =>
+    desktopTranslation?.openInBrowser(event.senderFrame?.url, book, page, bilingual) ?? false
   );
   ipcMain.handle("open-external", (event, url) => {
     if (typeof url !== "string" || !/^https?:|^mailto:/i.test(url)) {

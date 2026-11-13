@@ -112,15 +112,15 @@ function start() {
     throw new Error("Translation service did not start");
   })();
   runtime.ready.catch(() => {});
-  browserReader = startBrowserReader(async (pathname, request) => {
+  browserReader = startBrowserReader(renderer, async (pathname, request) => {
     await runtime.ready;
     return backendRequest(pathname, request);
   });
 }
 
-async function openInBrowser(senderUrl, book, chapter, page) {
+async function openInBrowser(senderUrl, book, page, bilingual) {
   if (!senderUrl?.startsWith(origin + "/") || !browserReader) return false;
-  await shell.openExternal(await browserReader.url(book, chapter, page));
+  await shell.openExternal(await browserReader.url(book, page, bilingual));
   return true;
 }
 

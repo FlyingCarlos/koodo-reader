@@ -13,6 +13,8 @@ import Viewer from "../../containers/viewer";
 import { Tooltip } from "react-tooltip";
 import "./index.css";
 import Book from "../../models/Book";
+import { isBrowserBook } from "../../utils/reader/browserBook";
+import { TranslationBook, translationApi } from "../../components/bilingualReader/api";
 import DatabaseService from "../../utils/storage/databaseService";
 import ConvertDialog from "../../components/dialogs/convertDialog";
 import PdfCropDialog from "../../components/dialogs/pdfCropDialog";
@@ -172,6 +174,20 @@ class Reader extends React.Component<ReaderProps, ReaderState> {
       );
     } else {
       window.currentBookKey = "";
+    }
+    if (isBrowserBook) {
+      try {
+        const metadata = await translationApi<TranslationBook>(`/books?key=${key}`);
+        const book = new Book(key, metadata.title, "", "", "", "", "PDF", "", 0, 0, "", "");
+        const query = new URLSearchParams(url.slice(firstIndexOfQuestion + 1));
+        ConfigService.setReaderConfig(`pdfBilingual:${key}`, query.get("bilingual") === "yes" ? "yes" : "no");
+        this.props.handleReaderMode("scroll");
+        this.props.handleReadingBook(book);
+      } catch {
+        const page = document.getElementById("root");
+        if (page) page.textContent = "无法打开这本书，请从 Koodo Reader 重新打开浏览器阅读页。";
+      }
+      return;
     }
     this.props.handleFetchBooks();
     this.props.handleFetchAuthed();

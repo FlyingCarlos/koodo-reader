@@ -1,5 +1,6 @@
 import { PDF_TRANSLATION_UPDATE } from "../../components/bilingualReader/events";
 import { renderOriginalPdfCover } from "./pdfCover";
+import { translationUrl } from "./browserBook";
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { ChapterContent, PageFormat, ParallelBlock, TranslationBook, translationApi } from "../../components/bilingualReader/api";
@@ -251,7 +252,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       const imageBlock=byId.get(callout.id);if(!imageBlock||!members.length)continue;
       consumed.add(callout.id);members.forEach(b=>consumed.add(b.id));
       const aside=doc.createElement("aside");aside.className="translation-callout";
-      const image=doc.createElement("img");image.src=`/api/translation/books/${metadata!.id}/blocks/${callout.id}/image?icon=1`;
+      const image=doc.createElement("img");image.src=translationUrl(`/books/${metadata!.id}/blocks/${callout.id}/image?icon=1`);
       image.alt="原提示框图标";image.style.width=`${Math.min(64,(callout.image_bbox[2]-callout.image_bbox[0])*sourceScale)}px`;
       const body=doc.createElement("div");members.forEach(member=>body.appendChild(renderSourceParagraph(doc,member,blocks,format)));
       aside.append(image,body);items.push({blocks:[{...imageBlock,anchors:[{page:imageBlock.page,bbox:callout.bbox}]}],node:aside});
@@ -294,7 +295,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       else if (item.node) section.appendChild(item.node);
       else if (block.kind === "image") {
         const bbox = block.anchors[0].bbox, image = doc.createElement("img");
-        image.src = `/api/translation/books/${metadata!.id}/blocks/${block.id}/image`;
+        image.src = translationUrl(`/books/${metadata!.id}/blocks/${block.id}/image`);
         image.alt = `第 ${block.page} 页原图，图中文字保留原样`;
         image.width = Math.max(1, Math.min(width, (bbox[2] - bbox[0]) * sourceScale));
         image.height = image.width * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]);

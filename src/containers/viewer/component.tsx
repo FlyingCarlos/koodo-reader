@@ -1,6 +1,7 @@
 import React from "react";
 import { ViewerProps, ViewerState } from "./interface";
 import { withRouter } from "react-router-dom";
+import { isBrowserBook, translationUrl } from "../../utils/reader/browserBook";
 import BookUtil from "../../utils/file/bookUtil";
 import PopupMenu from "../../components/popups/popupMenu";
 import Background from "../../components/background";
@@ -257,8 +258,12 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
       this.state.rendition.removeContent();
     }
     let result;
-    let isCacheExsit = await BookUtil.isBookExist("cache-" + key, "zip", path);
-    if (
+    let isCacheExsit = !isBrowserBook && await BookUtil.isBookExist("cache-" + key, "zip", path);
+    if (isBrowserBook) {
+      const response = await fetch(translationUrl(`/books/${key}/source.pdf`));
+      if (!response.ok) throw new Error("无法读取原 PDF。");
+      result = await response.arrayBuffer();
+    } else if (
       isElectron &&
       (this.props.currentBook.format === "CBZ" ||
         this.props.currentBook.format === "CBT")
@@ -500,7 +505,10 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
       {}
     );
     if (chapterDocs.length > 0) {
-      if (
+      const page = isBrowserBook && Number(new URLSearchParams(window.location.hash.split("?")[1]).get("page"));
+      if (page && page > 1) {
+        await rendition.goToPage(Math.min(page, chapterDocs.length));
+      } else if (
         ConfigService.getReaderConfig("isEnableKoReaderSync") === "yes" &&
         bookLocation.xpath
       ) {
