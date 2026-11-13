@@ -59,6 +59,27 @@ class CoverUtil {
       if (!fs.existsSync(imageFilePath)) {
         return book.cover;
       }
+      if (window.location.protocol === "koodo-desktop:") {
+        const extension = path.extname(imageFilePath).slice(1).toLowerCase();
+        const imageTypes: Record<string, string> = {
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          webp: "image/webp",
+          gif: "image/gif",
+          bmp: "image/bmp",
+          avif: "image/avif",
+        };
+        if (!Object.prototype.hasOwnProperty.call(imageTypes, extension)) {
+          return book.cover;
+        }
+        try {
+          const cover = await fs.promises.readFile(imageFilePath);
+          return `data:${imageTypes[extension]};base64,${Buffer.from(cover).toString("base64")}`;
+        } catch {
+          return book.cover;
+        }
+      }
       return imageFilePath;
     } else {
       if (ConfigService.getItem("isUseLocal") === "yes") {

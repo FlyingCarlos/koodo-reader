@@ -60,6 +60,11 @@ const {
   promptBiometricAuth,
 } = require("./src/utils/main/biometric-util");
 const { getVoicePlugin } = require("./src/utils/plugins/main/registry");
+const desktopTranslation = app.isPackaged && process.platform === "darwin" &&
+  fs.existsSync(path.join(process.resourcesPath, "translation-runtime", "koodo-translation"))
+  ? require("./src/utils/main/desktop-translation")
+  : null;
+desktopTranslation?.register();
 const configDir = app.getPath("userData");
 const dirPath = path.join(configDir, "uploads");
 const customVoicePluginCache = new Map();
@@ -499,7 +504,9 @@ const createMainWin = () => {
 
   const urlLocation = isDev
     ? "http://localhost:3000"
-    : `file://${path.join(__dirname, "./build/index.html")}`;
+    : desktopTranslation
+      ? desktopTranslation.origin + "/index.html"
+      : pathToFileURL(path.join(__dirname, "build/index.html")).href;
   mainWin.loadURL(urlLocation);
   // Handle deep link on cold start: wait for renderer to mount its IPC listeners
   mainWin.webContents.once("did-finish-load", () => {
@@ -714,6 +721,9 @@ const createMainWin = () => {
       };
     }
   });
+  ipcMain.handle("translation-sign-in", (event) =>
+    desktopTranslation?.signIn(event.senderFrame?.url) ?? false
+  );
   ipcMain.handle("open-external", (event, url) => {
     if (typeof url !== "string" || !/^https?:|^mailto:/i.test(url)) {
       throw new TypeError("Invalid external URL");
@@ -2075,11 +2085,28 @@ const applyCorsToRendererRequests = () => {
 };
 
 app.on("ready", async () => {
+  if (desktopTranslation && singleInstance) {
+    desktopTranslation.connectProtocol();
+    desktopTranslation.start();
+  }
   applyCorsToRendererRequests();
   await applyProxyToSession();
   createMainWin();
 });
-app.on("before-quit", () => {
+let translationStopped = false;
+let translationStopping = false;
+app.on("before-quit", (event) => {
+  if (desktopTranslation && singleInstance && !translationStopped) {
+    event.preventDefault();
+    if (translationStopping) return;
+    translationStopping = true;
+    isQuitting = true;
+    desktopTranslation.stop().finally(() => {
+      translationStopped = true;
+      app.quit();
+    });
+    return;
+  }
   isQuitting = true;
   destroyDiscordRPC();
 });
@@ -2090,7 +2117,7 @@ app.on("open-file", (e, pathToFile) => {
   filePath = pathToFile;
 });
 // Register protocol handler
-app.setAsDefaultProtocolClient("koodo-reader");
+if (!desktopTranslation) app.setAsDefaultProtocolClient("koodo-reader");
 const serializeArg = (arg) => {
   if (arg === null) return "null";
   if (arg === undefined) return "undefined";

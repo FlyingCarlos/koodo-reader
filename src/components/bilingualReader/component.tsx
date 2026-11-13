@@ -30,6 +30,9 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
   const [models, setModels] = useState<{slug: string; display_name: string}[]>([]);
   const [model, setModel] = useState("");
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
+  const [loginRequired, setLoginRequired] = useState(false);
+  const desktop = window.location.protocol === "koodo-desktop:";
   const [content, setContent] = useState<ChapterContent | null>(null);
   const chapter = metadata?.chapters.find((item) => item.start_page <= page && item.end_page >= page);
   const notify = () => window.dispatchEvent(new CustomEvent(PDF_TRANSLATION_UPDATE, { detail: { key: book.key } }));
@@ -43,15 +46,51 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
       else setError(failure instanceof Error ? failure.message : "读取翻译信息失败，请重试。");
     }
   }, [book.key]);
+  const loadModels = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const result = await translationApi<{slug: string; display_name: string}[]>("/models");
+      setModels(result);
+      setModel(result[0]?.slug || "");
+      setLoginRequired(false);
+    } catch (failure) {
+      if (failure instanceof TranslationApiError && failure.status === 401) {
+        setLoginRequired(true);
+      } else {
+        setError(failure instanceof Error ? failure.message : "无法读取翻译模型。");
+      }
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+  const signIn = async () => {
+    setSigningIn(true);
+    setError("");
+    try {
+      if (!(await window.electronAPI.invoke<boolean>("translation-sign-in"))) {
+        setError("ChatGPT 登录未完成，请重试。");
+        return;
+      }
+      await loadModels();
+    } catch {
+      setError("无法启动 ChatGPT 登录，请重试。");
+    } finally {
+      setSigningIn(false);
+    }
+  };
   useEffect(() => {
     void loadBook();
+    if (desktop) {
+      void loadModels();
+      return;
+    }
     let cancelled = false;
     translationApi<{slug: string; display_name: string}[]>("/models").then((result) => {
       if (!cancelled) { setModels(result); setModel(result[0]?.slug || ""); }
     }).catch(() => { if (!cancelled) setError("订阅连接不可用，请在本机重新登录翻译后台。"); })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
-  }, [loadBook]);
+  }, [desktop, loadBook, loadModels]);
   useEffect(() => {
     if (wholeOnly) return;
     const update = () => {
@@ -127,6 +166,9 @@ export default function TranslationPanel({ book, rendition, wholeOnly = false }:
     <p className="pdf-translation-hint">{stacked ? "窄屏按原页上下对照，原 PDF 在上、中文在下。" : "左侧保留原 PDF，右侧显示当前页译文。"}选中菜单、目录、跳转与笔记继续使用原阅读器。</p>
     {!isReadingRawPDF(book) && <p className="pdf-translation-hint">请切回 PDF 原版式后开启双语显示。</p>}
     </>}
+    {desktop && loginRequired && <button type="button" disabled={signingIn} onClick={signIn}>
+      {signingIn ? "正在等待浏览器授权…" : "登录 ChatGPT 以使用翻译"}
+    </button>}
     {error && <p className="pdf-translation-error" role="alert">{error}<button onClick={loadBook}>重试</button></p>}
     {missing ? <div className="pdf-translation-import">
       <button disabled={!!busy} onClick={() => upload()}>{busy || "提取本书"}</button>

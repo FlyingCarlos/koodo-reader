@@ -1,7 +1,10 @@
 """Loopback-only API, exposed through the reader's same-origin Node server."""
 
 import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -12,19 +15,37 @@ from starlette.routing import Route
 
 from .auth import AuthenticationError
 from .chapters import ChapterQueue
+from .desktop_library import DesktopLibrary
 from .documents import MAX_PDF_BYTES, DocumentStore
 from .storage import state_directory
 
 
+async def sync_desktop_library(queue):
+    library = DesktopLibrary(queue)
+    while True:
+        try:
+            # Keep PDF reads and iCloud hydration off the request loop.
+            await asyncio.to_thread(library.sync)
+        except Exception:
+            logging.getLogger(__name__).exception("Unable to sync desktop translations")
+        await asyncio.sleep(15)
+
+
 @asynccontextmanager
 async def lifespan(app):
-    documents = DocumentStore(state_directory())
+    desktop_state = os.environ.get("KOODO_DESKTOP_TRANSLATION_STATE")
+    directory = state_directory(Path(desktop_state)) if desktop_state else state_directory()
+    documents = DocumentStore(directory)
     queue = ChapterQueue(documents)
     app.state.documents, app.state.queue = documents, queue
     await queue.start()
+    sync_task = asyncio.create_task(sync_desktop_library(queue)) if desktop_state else None
     try:
         yield
     finally:
+        if sync_task:
+            sync_task.cancel()
+            await asyncio.gather(sync_task, return_exceptions=True)
         await queue.stop()
 
 
