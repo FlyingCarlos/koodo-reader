@@ -63,6 +63,7 @@ export type FormatTable = {
 };
 export type PageFormat = {
   version: number; status: string; body_font_size: number;
+  table_state?: "ready" | "pending";
   paragraph_groups: string[][]; tables: FormatTable[];
   translated_marks: Record<string, TextMark[]>;
   translated_cells: Record<string, CellFragment[]>;

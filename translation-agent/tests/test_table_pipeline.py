@@ -14,6 +14,8 @@ from koodo_translation.storage import state_directory
 
 @pytest.fixture
 def table_book(tmp_path, monkeypatch):
+    # Exercise the model-alignment path, including retries and checkpoints.
+    monkeypatch.setattr("koodo_translation.formatting.table_cells_from_blocks", lambda *_: {})
     store = DocumentStore(state_directory(tmp_path))
     with pymupdf.open() as pdf:
         for _ in range(2):

@@ -431,7 +431,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
       sourceCanvases.set(article, canvas);
       article.replaceChildren();
       const header = doc.createElement("header");
-      const pendingTable = !!format?.tables?.length && format.status !== "ready";
+      const pendingTable = !!format?.tables?.length && (format.table_state ?? format.status) !== "ready";
       const tableMessage = !pendingTable ? "" : chapterContent?.task?.status === "failed" ? " · 表格结构恢复失败" : ["queued", "running"].includes(chapterContent?.task?.status || "") ? " · 表格结构恢复中" : " · 表格结构待恢复";
       header.textContent = `中文译文 · PDF ${physicalPage(index)}${blocks.some((block) => block.kind === "image") ? " · 图中文字保留原样" : ""}${tableMessage}`;
       article.appendChild(header);
@@ -606,7 +606,7 @@ export function attachPdfTranslation(rendition: any, book: Book) {
     if (!enabled || disposed) return;
     // Poll loaded chapters while active, and legacy completed chapters awaiting table repair.
     for (const [id, chapter] of Array.from(content.entries())) {
-      const pendingTables = Object.values(chapter.page_formats || {}).some(format => format.tables?.length && format.status !== "ready");
+      const pendingTables = Object.values(chapter.page_formats || {}).some(format => format.tables?.length && (format.table_state ?? format.status) !== "ready");
       if (["queued", "running"].includes(chapter.task?.status || "") || (chapter.task?.status === "completed" && pendingTables)) {
         try { await loadChapter(id); } catch { /* Preserve last readable copy. */ }
       }

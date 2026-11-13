@@ -138,14 +138,16 @@ class SubscriptionMock:
                 "output_tokens_details": {"reasoning_tokens": 0},
             },
         }
-        if output == "quota":
+        if isinstance(output, str) and (output == "quota" or output.startswith("subscription_")):
             response.update(
                 {
                     "status": "failed",
                     "output": [],
                     "error": {
-                        "code": "subscription_sharing_usage_limit_exceeded",
-                        "message": "Limit reached",
+                        "code": "subscription_sharing_usage_limit_exceeded"
+                        if output == "quota"
+                        else output,
+                        "message": "Request failed",
                     },
                 }
             )
@@ -190,12 +192,45 @@ async def test_failed_review_resumes_from_saved_draft(tmp_path):
     saved = store.get(job["id"])
     assert saved["artifacts"]["draft"] == DRAFT
     assert saved["status"] == "paused_usage_limit"
+    assert len(first.requests) == 3
     assert "accepted" not in saved["artifacts"]
     second = SubscriptionMock([{"issues": []}])
     async with second.client() as client:
         result = await translate_job(SOURCE, "test-model", client, store, job["id"])
     assert result["status"] == "completed"
     assert len(second.requests) == 1
+
+
+@pytest.mark.parametrize("recover", [True, False])
+async def test_temporary_subscription_error_retries_only_failed_stage(
+    tmp_path, monkeypatch, recover
+):
+    from koodo_translation import workflow
+
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(workflow, "sleep", sleep)
+    store = JobStore(state_directory(tmp_path))
+    job = store.start(SOURCE.model_dump(), "test-model")
+    transient = "subscription_sharing_user_unavailable"
+    last = {"issues": []} if recover else transient
+    mock = SubscriptionMock(
+        ["tool", DRAFT, transient, "subscription_sharing_usage_unavailable", last]
+    )
+    async with mock.client() as client:
+        if recover:
+            result = await translate_job(SOURCE, "test-model", client, store, job["id"])
+            assert result["status"] == "completed"
+        else:
+            with pytest.raises(InferenceError) as failure:
+                await translate_job(SOURCE, "test-model", client, store, job["id"])
+            assert failure.value.code == transient
+    assert delays == [2, 6]
+    assert len(mock.requests) == 5
+    assert store.get(job["id"])["artifacts"]["draft"] == DRAFT
 
 
 async def test_unresolved_revision_is_not_accepted(tmp_path):

@@ -1,7 +1,9 @@
 import { afterEach, expect, jest, test } from "@jest/globals";
 import { originalPdfFigure } from "./pdfFigure";
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 test("copies the exact native figure pixels independently of CSS display width", () => {
   const source = document.createElement("canvas");

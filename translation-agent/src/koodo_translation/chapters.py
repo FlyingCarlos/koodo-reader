@@ -245,7 +245,8 @@ class ChapterQueue:
             }
             saved_path = folder / f"page-format-{int(page):04d}.json"
             saved = json.loads(saved_path.read_text()) if saved_path.exists() else None
-            formats[page] = page_presentation(source, texts, saved)
+            originals = {n["id"]: n["text"] for n in nodes if n["id"] in texts}
+            formats[page] = page_presentation(source, texts, saved, original_texts=originals)
         return {
             "chapter": chapter,
             "task": self.summary(task),
@@ -319,7 +320,8 @@ class ChapterQueue:
             self.jobs.save(job["id"], "completed", {"format": output, "usage": []})
         saved = {**output, "fingerprint": digest, "job_id": job["id"]}
         write_private_json(saved_path, saved)
-        result = page_presentation(source, texts, saved)
+        originals = {n["id"]: n["text"] for n in nodes if n["id"] in texts}
+        result = page_presentation(source, texts, saved, original_texts=originals)
         result.update(presentation)
         return result
 
@@ -340,7 +342,7 @@ class ChapterQueue:
                         {
                             "page": int(page),
                             "chapter_id": chapter["id"],
-                            "ready": presentation["status"] == "ready",
+                            "ready": presentation["table_state"] == "ready",
                         }
                     )
         return {"total": len(pages), "completed": sum(p["ready"] for p in pages), "pages": pages}
@@ -358,7 +360,7 @@ class ChapterQueue:
     async def _restore_chapter_tables(self, task):
         content = self.chapter(task["book_id"], task["chapter_id"])
         for page, presentation in content["page_formats"].items():
-            if presentation["tables"] and presentation["status"] != "ready":
+            if presentation["tables"] and presentation["table_state"] != "ready":
                 await self._format_page(task["book_id"], task["chapter_id"], int(page))
 
     def pause(self, task_id: str):

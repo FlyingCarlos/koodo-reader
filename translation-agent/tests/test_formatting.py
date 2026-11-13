@@ -56,13 +56,42 @@ SOURCE = {
     "tables": [
         {
             "cells": [
-                {"id": "left", "block_ids": ["header"], "text": "Pros"},
-                {"id": "right", "block_ids": ["header"], "text": "Cons"},
+                {"id": "left", "row": 0, "column": 0, "block_ids": ["header"], "text": "Pros"},
+                {"id": "right", "row": 0, "column": 1, "block_ids": ["header"], "text": "Cons"},
             ]
         }
     ],
 }
 TEXTS = {"body": "😀使用 x 的实例", "header": "优点 缺点"}
+
+
+def test_whole_cell_translation_requires_complete_source_and_unique_ownership():
+    source = {
+        "marks": [],
+        "tables": [{"cells": [{"id": "one", "block_ids": ["b"], "text": "Cost"}]}],
+    }
+    texts = {"b": "成本😀"}
+    result = page_presentation(source, texts, original_texts={"b": "Cost"})
+    assert result["table_state"] == "ready"
+    assert result["translated_cells"] == {"one": [{"block_id": "b", "start": 0, "end": 4}]}
+    assert result["status"] == "pending"
+    partial = page_presentation(source, texts, original_texts={"b": "Cost and prose"})
+    assert partial["table_state"] == "pending"
+    shared = page_presentation(SOURCE, TEXTS, original_texts={"header": "Pros Cons"})
+    assert shared["table_state"] == "pending"
+    assert not shared["translated_cells"]
+    headers = copy.deepcopy(SOURCE)
+    for cell in headers["tables"][0]["cells"]:
+        cell["header"] = True
+    delimited = page_presentation(headers, TEXTS, original_texts={"header": "Pros Cons"})
+    assert delimited["table_state"] == "ready"
+    assert delimited["translated_cells"]["right"][0]["start"] == 3
+    undelimited = page_presentation(
+        headers, {"header": "优点缺点"}, original_texts={"header": "Pros Cons"}
+    )
+    assert undelimited["table_state"] == "pending"
+
+
 ALIGNMENT = {
     "marks": [{"source_id": "s0", "quote": "x", "occurrence": 0}],
     "cells": [

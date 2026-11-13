@@ -46,7 +46,7 @@ class PublicationStore:
         ]
         files += sorted(folder.glob("page-format-*.json"))
         stamps = [(p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.exists()]
-        value = [5, (row["id"], row["revision"]) if row else None, jobs, stamps]
+        value = [7, (row["id"], row["revision"]) if row else None, jobs, stamps]
         return hashlib.sha256(json.dumps(value).encode()).hexdigest()
 
     def chapter(self, book_id, chapter_id, build):
@@ -93,7 +93,7 @@ class PublicationStore:
             for p in content["page_formats"].values()
             if p["tables"]
         ]
-        complete = all(p["status"] == "ready" for p in tables) and all(
+        complete = all(p["table_state"] == "ready" for p in tables) and all(
             not c["text_count"]
             or contents[c["id"]]["task"]
             and contents[c["id"]]["task"]["status"] == "completed"
@@ -111,7 +111,7 @@ class PublicationStore:
             "status": "completed" if complete else "partial",
             "table_presentation": {
                 "total": len(tables),
-                "completed": sum(p["status"] == "ready" for p in tables),
+                "completed": sum(p["table_state"] == "ready" for p in tables),
             },
             "original": "source.pdf",
             "cover": {"source": "source.pdf", "page": 1},

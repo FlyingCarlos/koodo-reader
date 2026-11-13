@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -336,18 +336,112 @@ def fingerprint(source, texts):
     ).hexdigest()
 
 
-def page_presentation(source, texts, saved=None):
+def table_cells_from_blocks(tables, texts, original_texts):
+    owners = defaultdict(list)
+    for table in tables:
+        for cell in table["cells"]:
+            for block_id in cell["block_ids"]:
+                owners[block_id].append(cell)
+
+    def without_spacing(text):
+        return "".join(unicodedata.normalize("NFKC", text).split())
+
+    result = {}
+    for table in tables:
+        cells = {cell["id"]: [] for cell in table["cells"]}
+        shared = set()
+        for cell in table["cells"]:
+            ids = cell["block_ids"]
+            if len(ids) == 1 and len(owners[ids[0]]) > 1:
+                shared.add(ids[0])
+                continue
+            if without_spacing(cell["text"]) != without_spacing(
+                " ".join(original_texts.get(block_id, "") for block_id in ids)
+            ) or any(
+                len(owners[block_id]) != 1 or not texts.get(block_id, "").strip()
+                for block_id in ids
+            ):
+                break
+            cells[cell["id"]] = [
+                {
+                    "block_id": block_id,
+                    "start": 0,
+                    "end": utf16(texts[block_id], len(texts[block_id])),
+                }
+                for block_id in ids
+            ]
+        else:
+            for block_id in shared:
+                group = sorted(owners[block_id], key=lambda cell: (cell["row"], cell["column"]))
+                translated = texts.get(block_id, "")
+                if (
+                    not translated.strip()
+                    or any(
+                        cell["id"] not in cells
+                        or cell["block_ids"] != [block_id]
+                        or cell["row"] != group[0]["row"]
+                        for cell in group
+                    )
+                    or without_spacing(" ".join(cell["text"] for cell in group))
+                    != without_spacing(original_texts.get(block_id, ""))
+                ):
+                    break
+                cuts = shared_cell_cuts(group, translated)
+                if not cuts:
+                    break
+                for cell, start, end in zip(group, cuts[:-1], cuts[1:], strict=True):
+                    cells[cell["id"]] = [
+                        {
+                            "block_id": block_id,
+                            "start": utf16(translated, start),
+                            "end": utf16(translated, end),
+                        }
+                    ]
+            else:
+                result.update(cells)
+    return result
+
+
+def shared_cell_cuts(cells, text):
+    # Extractors sometimes merge a row label with the next cell. An unchanged
+    # acronym with its own whitespace boundary gives an exact split point.
+    label = cells[0]["text"].strip()
+    if len(cells) == 2 and re.fullmatch(r"[A-Z][A-Z0-9]{1,7}", label):
+        prefix = re.match(rf"\s*{re.escape(label)}\s+(?=\S)", text)
+        if prefix:
+            return [0, prefix.end(), len(text)]
+    # Short headers can retain their explicit separators in translation.
+    # Require one simple label per cell on both sides; prose falls back to alignment.
+    if all(
+        cell.get("header") and re.fullmatch(r"[A-Za-z]+", cell["text"].strip()) for cell in cells
+    ):
+        labels = list(re.finditer(r"\S+", text))
+        if len(labels) == len(cells) and all(
+            re.fullmatch(r"[\u3400-\u9fff]+", label.group()) for label in labels
+        ):
+            return [0, *(label.start() for label in labels[1:]), len(text)]
+    return []
+
+
+def page_presentation(source, texts, saved=None, *, original_texts=None):
     valid = (
         saved
         and saved.get("fingerprint") == fingerprint(source, texts)
         and "marks" in saved
         and "cells" in saved
     )
+    cells = {
+        **table_cells_from_blocks(source["tables"], texts, original_texts or {}),
+        **(saved["cells"] if valid else {}),
+    }
     return {
         **source,
         "status": "ready" if valid else "pending",
         "translated_marks": saved["marks"] if valid else {},
-        "translated_cells": saved["cells"] if valid else {},
+        "translated_cells": cells,
+        "table_state": "ready"
+        if all(cell["id"] in cells for table in source["tables"] for cell in table["cells"])
+        else "pending",
         "inline_positions": saved.get("inlines", {}) if valid else {},
     }
 
