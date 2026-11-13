@@ -18,7 +18,12 @@ export CSC_IDENTITY_AUTO_DISCOVERY=false
 export PYTHONPATH="$PWD/translation-agent/src"
 
 yarn install --frozen-lockfile --ignore-scripts --ignore-optional
-./node_modules/.bin/electron-rebuild -f -o better-sqlite3
+node scripts/rebuild-desktop-sqlite.mjs
+binding=node_modules/better-sqlite3/build/Release/better_sqlite3.node
+if [[ ! -f "$binding" ]] || ! lipo -verify_arch arm64 "$binding"; then
+  print -u2 "Missing arm64 SQLite binding after rebuild: $binding"
+  exit 1
+fi
 yarn build
 
 uv sync --project translation-agent --locked --python 3.12
@@ -32,9 +37,29 @@ uv run --project translation-agent --locked --with pyinstaller==6.16.0 \
 out="$PWD/dist/mac-arm64"
 staged=$(mktemp -d "$PWD/dist/.sign.XXXXXX")
 app="Koodo Reader Custom.app"
+verify_sqlite() {
+  local bundle="$1"
+  if [[ ! -f "$bundle/Contents/Resources/app.asar.unpacked/$binding" ]]; then
+    print -u2 "Missing SQLite binding in packaged app: $bundle"
+    return 1
+  fi
+  ELECTRON_RUN_AS_NODE=1 "$bundle/Contents/MacOS/Koodo Reader Custom" -e '
+    const path = require("node:path");
+    const Database = require(path.join(process.argv[1], "Contents/Resources/app.asar/node_modules/better-sqlite3"));
+    const db = new Database(":memory:");
+    try {
+      if (db.prepare("SELECT 1 AS ready").get().ready !== 1) {
+        throw new Error("Packaged SQLite query failed");
+      }
+    } finally {
+      db.close();
+    }
+  ' "$bundle"
+}
 ditto --noextattr --norsrc "$out/$app" "$staged/$app"
 codesign --force --deep --sign - "$staged/$app"
 codesign --verify --deep --strict "$staged/$app"
+verify_sqlite "$staged/$app"
 mv "$out/$app" "$staged/unsigned.app"
 if ! mv "$staged/$app" "$out/$app"; then
   mv "$staged/unsigned.app" "$out/$app"
@@ -56,6 +81,7 @@ if [[ "${1:-}" == "--dmg" ]]; then
   hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$image"
   trap 'hdiutil detach "$mount"' EXIT
   codesign --verify --deep --strict "$mount/$app"
+  verify_sqlite "$mount/$app"
   test -x "$mount/$app/Contents/Resources/translation-runtime/koodo-translation"
   test "$(readlink "$mount/Applications")" = /Applications
   hdiutil detach "$mount"

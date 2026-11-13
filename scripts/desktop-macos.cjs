@@ -7,6 +7,7 @@ module.exports = {
   protocols: [],
   publish: null,
   npmRebuild: false,
+  asarUnpack: ["node_modules/better-sqlite3/build/Release/better_sqlite3.node"],
   extraResources: [
     ...build.extraResources,
     {
