@@ -36,14 +36,15 @@ uv run --project translation-agent --locked --with pyinstaller==6.16.0 \
 
 out="$PWD/dist/mac-arm64"
 staged=$(mktemp -d "$PWD/dist/.sign.XXXXXX")
-app="Koodo Reader Custom.app"
+product=$(node -p 'require("./scripts/desktop-macos.cjs").productName')
+app="$product.app"
 verify_sqlite() {
   local bundle="$1"
   if [[ ! -f "$bundle/Contents/Resources/app.asar.unpacked/$binding" ]]; then
     print -u2 "Missing SQLite binding in packaged app: $bundle"
     return 1
   fi
-  ELECTRON_RUN_AS_NODE=1 "$bundle/Contents/MacOS/Koodo Reader Custom" -e '
+  ELECTRON_RUN_AS_NODE=1 "$bundle/Contents/MacOS/$product" -e '
     const path = require("node:path");
     const Database = require(path.join(process.argv[1], "Contents/Resources/app.asar/node_modules/better-sqlite3"));
     const db = new Database(":memory:");
@@ -70,11 +71,11 @@ print "$out/$app"
 if [[ "${1:-}" == "--dmg" ]]; then
   version=$(node -p 'require("./package.json").version')
   revision=$(git rev-parse --short=12 HEAD)
-  image="$PWD/dist/Koodo-Reader-Custom-$version-$revision-arm64.dmg"
+  image="$PWD/dist/${product// /-}-$version-$revision-arm64.dmg"
   mkdir "$staged/dmg"
   ditto --noextattr --norsrc "$out/$app" "$staged/dmg/$app"
   ln -s /Applications "$staged/dmg/Applications"
-  hdiutil create -ov -format UDZO -fs HFS+ -volname "Koodo Reader Custom" \
+  hdiutil create -ov -format UDZO -fs HFS+ -volname "$product" \
     -srcfolder "$staged/dmg" "$image"
   hdiutil verify "$image"
   mount=$(mktemp -d "$staged/mount.XXXXXX")

@@ -3,7 +3,6 @@ const { build } = require("../package.json");
 module.exports = {
   ...build,
   appId: "com.carlosz.koodo-reader-custom",
-  productName: "Koodo Reader Custom",
   protocols: [],
   publish: null,
   npmRebuild: false,
