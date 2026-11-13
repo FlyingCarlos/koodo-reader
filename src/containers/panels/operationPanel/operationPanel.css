@@ -117,16 +117,42 @@
 .book-operation-panel-with-browser .book-opeartion-info {
   grid-column: 1 / -1;
 }
-.book-operation-panel-with-browser > :is(.exit-reading-button, .add-bookmark-button, .enter-fullscreen-button) {
+.book-operation-panel-with-browser > :is(.exit-reading-button, .add-bookmark-button, .enter-fullscreen-button, .open-browser-reading-button) {
   width: auto;
   margin: 0;
 }
+.book-operation-panel-with-browser .operation-button-container {
+  width: 100%;
+}
+.book-operation-panel-with-browser :is(.operation-button-container > div, .open-browser-reading-button .operation-button-container) {
+  gap: 6px;
+}
+.book-operation-panel-with-browser :is(.exit-reading-icon, .add-bookmark-icon, .enter-fullscreen-icon, .open-browser-reading-icon) {
+  display: inline-block;
+  flex: 0 0 20px;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1;
+  text-align: center;
+}
+.book-operation-panel-with-browser :is(.exit-reading-text, .add-bookmark-text, .enter-fullscreen-text, .open-browser-reading-text) {
+  width: auto;
+  margin: 0;
+  font-size: 13px;
+  line-height: 14px;
+}
 .open-browser-reading-button {
-  padding: 0 4px;
-  border: 1px solid currentColor;
-  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 37px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(144, 128, 191, 1);
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }

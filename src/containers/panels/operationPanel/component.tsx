@@ -306,8 +306,17 @@ class OperationPanel extends React.Component<
           </div>
         </div>
         {canOpenBrowser && (
-          <button type="button" className="open-browser-reading-button" onClick={this.handleOpenInBrowser}>
-            在浏览器中阅读
+          <button
+            type="button"
+            className="open-browser-reading-button"
+            aria-label="在浏览器中阅读"
+            title="在浏览器中阅读"
+            onClick={this.handleOpenInBrowser}
+          >
+            <span className="operation-button-container">
+              <span className="icon-browser open-browser-reading-icon" aria-hidden="true" />
+              <span className="open-browser-reading-text">浏览器阅读</span>
+            </span>
           </button>
         )}
       </div>
